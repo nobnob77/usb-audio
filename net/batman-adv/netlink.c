@@ -1,4 +1,5 @@
-/* Copyright (C) 2016 B.A.T.M.A.N. contributors:
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright (C) 2016-2017  B.A.T.M.A.N. contributors:
  *
  * Matthias Schiffer
  *
@@ -20,11 +21,14 @@
 
 #include <linux/atomic.h>
 #include <linux/byteorder/generic.h>
+#include <linux/cache.h>
 #include <linux/errno.h>
-#include <linux/fs.h>
+#include <linux/export.h>
 #include <linux/genetlink.h>
+#include <linux/gfp.h>
 #include <linux/if_ether.h>
 #include <linux/init.h>
+#include <linux/kernel.h>
 #include <linux/netdevice.h>
 #include <linux/netlink.h>
 #include <linux/printk.h>
@@ -36,6 +40,7 @@
 #include <net/genetlink.h>
 #include <net/netlink.h>
 #include <net/sock.h>
+#include <uapi/linux/batadv_packet.h>
 #include <uapi/linux/batman_adv.h>
 
 #include "bat_algo.h"
@@ -43,19 +48,11 @@
 #include "gateway_client.h"
 #include "hard-interface.h"
 #include "originator.h"
-#include "packet.h"
 #include "soft-interface.h"
 #include "tp_meter.h"
 #include "translation-table.h"
 
-struct genl_family batadv_netlink_family = {
-	.id = GENL_ID_GENERATE,
-	.hdrsize = 0,
-	.name = BATADV_NL_NAME,
-	.version = 1,
-	.maxattr = BATADV_ATTR_MAX,
-	.netnsok = true,
-};
+struct genl_family batadv_netlink_family;
 
 /* multicast groups */
 enum batadv_netlink_multicast_groups {
@@ -103,7 +100,7 @@ static const struct nla_policy batadv_netlink_policy[NUM_BATADV_ATTR] = {
 };
 
 /**
- * batadv_netlink_get_ifindex - Extract an interface index from a message
+ * batadv_netlink_get_ifindex() - Extract an interface index from a message
  * @nlh: Message header
  * @attrtype: Attribute which holds an interface index
  *
@@ -118,7 +115,7 @@ batadv_netlink_get_ifindex(const struct nlmsghdr *nlh, int attrtype)
 }
 
 /**
- * batadv_netlink_mesh_info_put - fill in generic information about mesh
+ * batadv_netlink_mesh_info_put() - fill in generic information about mesh
  *  interface
  * @msg: netlink message to be sent back
  * @soft_iface: interface for which the data should be taken
@@ -173,7 +170,7 @@ batadv_netlink_mesh_info_put(struct sk_buff *msg, struct net_device *soft_iface)
 }
 
 /**
- * batadv_netlink_get_mesh_info - handle incoming BATADV_CMD_GET_MESH_INFO
+ * batadv_netlink_get_mesh_info() - handle incoming BATADV_CMD_GET_MESH_INFO
  *  netlink request
  * @skb: received netlink message
  * @info: receiver information
@@ -234,7 +231,7 @@ batadv_netlink_get_mesh_info(struct sk_buff *skb, struct genl_info *info)
 }
 
 /**
- * batadv_netlink_tp_meter_put - Fill information of started tp_meter session
+ * batadv_netlink_tp_meter_put() - Fill information of started tp_meter session
  * @msg: netlink message to be sent back
  * @cookie: tp meter session cookie
  *
@@ -250,7 +247,7 @@ batadv_netlink_tp_meter_put(struct sk_buff *msg, u32 cookie)
 }
 
 /**
- * batadv_netlink_tpmeter_notify - send tp_meter result via netlink to client
+ * batadv_netlink_tpmeter_notify() - send tp_meter result via netlink to client
  * @bat_priv: the bat priv with all the soft interface information
  * @dst: destination of tp_meter session
  * @result: reason for tp meter session stop
@@ -313,7 +310,7 @@ err_genlmsg:
 }
 
 /**
- * batadv_netlink_tp_meter_start - Start a new tp_meter session
+ * batadv_netlink_tp_meter_start() - Start a new tp_meter session
  * @skb: received netlink message
  * @info: receiver information
  *
@@ -390,7 +387,7 @@ batadv_netlink_tp_meter_start(struct sk_buff *skb, struct genl_info *info)
 }
 
 /**
- * batadv_netlink_tp_meter_start - Cancel a running tp_meter session
+ * batadv_netlink_tp_meter_start() - Cancel a running tp_meter session
  * @skb: received netlink message
  * @info: receiver information
  *
@@ -435,7 +432,7 @@ out:
 }
 
 /**
- * batadv_netlink_dump_hardif_entry - Dump one hard interface into a message
+ * batadv_netlink_dump_hardif_entry() - Dump one hard interface into a message
  * @msg: Netlink message to dump into
  * @portid: Port making netlink request
  * @seq: Sequence number of netlink message
@@ -477,7 +474,7 @@ batadv_netlink_dump_hardif_entry(struct sk_buff *msg, u32 portid, u32 seq,
 }
 
 /**
- * batadv_netlink_dump_hardifs - Dump all hard interface into a messages
+ * batadv_netlink_dump_hardifs() - Dump all hard interface into a messages
  * @msg: Netlink message to dump into
  * @cb: Parameters from query
  *
@@ -534,7 +531,7 @@ batadv_netlink_dump_hardifs(struct sk_buff *msg, struct netlink_callback *cb)
 	return msg->len;
 }
 
-static struct genl_ops batadv_netlink_ops[] = {
+static const struct genl_ops batadv_netlink_ops[] = {
 	{
 		.cmd = BATADV_CMD_GET_MESH_INFO,
 		.flags = GENL_ADMIN_PERM,
@@ -610,22 +607,33 @@ static struct genl_ops batadv_netlink_ops[] = {
 
 };
 
+struct genl_family batadv_netlink_family __ro_after_init = {
+	.hdrsize = 0,
+	.name = BATADV_NL_NAME,
+	.version = 1,
+	.maxattr = BATADV_ATTR_MAX,
+	.netnsok = true,
+	.module = THIS_MODULE,
+	.ops = batadv_netlink_ops,
+	.n_ops = ARRAY_SIZE(batadv_netlink_ops),
+	.mcgrps = batadv_netlink_mcgrps,
+	.n_mcgrps = ARRAY_SIZE(batadv_netlink_mcgrps),
+};
+
 /**
- * batadv_netlink_register - register batadv genl netlink family
+ * batadv_netlink_register() - register batadv genl netlink family
  */
 void __init batadv_netlink_register(void)
 {
 	int ret;
 
-	ret = genl_register_family_with_ops_groups(&batadv_netlink_family,
-						   batadv_netlink_ops,
-						   batadv_netlink_mcgrps);
+	ret = genl_register_family(&batadv_netlink_family);
 	if (ret)
 		pr_warn("unable to register netlink family");
 }
 
 /**
- * batadv_netlink_unregister - unregister batadv genl netlink family
+ * batadv_netlink_unregister() - unregister batadv genl netlink family
  */
 void batadv_netlink_unregister(void)
 {

@@ -182,14 +182,7 @@ struct smu7_hwmgr {
 	struct smu7_dpm_table			dpm_table;
 	struct smu7_dpm_table			golden_dpm_table;
 
-	uint32_t						voting_rights_clients0;
-	uint32_t						voting_rights_clients1;
-	uint32_t						voting_rights_clients2;
-	uint32_t						voting_rights_clients3;
-	uint32_t						voting_rights_clients4;
-	uint32_t						voting_rights_clients5;
-	uint32_t						voting_rights_clients6;
-	uint32_t						voting_rights_clients7;
+	uint32_t						voting_rights_clients[8];
 	uint32_t						static_screen_threshold_unit;
 	uint32_t						static_screen_threshold;
 	uint32_t						voltage_control;
@@ -268,7 +261,7 @@ struct smu7_hwmgr {
 	uint32_t                       fast_watermark_threshold;
 
 	/* ---- Phase Shedding ---- */
-	bool                           vddc_phase_shed_control;
+	uint8_t                           vddc_phase_shed_control;
 
 	/* ---- DI/DT ---- */
 	struct smu7_display_timing        display_timing;

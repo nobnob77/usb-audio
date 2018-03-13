@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2016, Intel Corp.
+ * Copyright (C) 2000 - 2018, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -47,9 +47,9 @@
 /* acpisrc:struct_defs -- for acpisrc conversion */
 
 /*
- * ACPI_MACHINE_WIDTH must be specified in an OS- or compiler-dependent header
- * and must be either 32 or 64. 16-bit ACPICA is no longer supported, as of
- * 12/2006.
+ * ACPI_MACHINE_WIDTH must be specified in an OS- or compiler-dependent
+ * header and must be either 32 or 64. 16-bit ACPICA is no longer
+ * supported, as of 12/2006.
  */
 #ifndef ACPI_MACHINE_WIDTH
 #error ACPI_MACHINE_WIDTH not defined
@@ -87,9 +87,9 @@
  * s64          64-bit (8 byte) signed value
  *
  * COMPILER_DEPENDENT_UINT64/s64 - These types are defined in the
- * compiler-dependent header(s) and were introduced because there is no common
- * 64-bit integer type across the various compilation models, as shown in
- * the table below.
+ * compiler-dependent header(s) and were introduced because there is no
+ * common 64-bit integer type across the various compilation models, as
+ * shown in the table below.
  *
  * Datatype  LP64 ILP64 LLP64 ILP32 LP32 16bit
  * char      8    8     8     8     8    8
@@ -106,10 +106,10 @@
  * 2) These types represent the native word size of the target mode of the
  * processor, and may be 16-bit, 32-bit, or 64-bit as required. They are
  * usually used for memory allocation, efficient loop counters, and array
- * indexes. The types are similar to the size_t type in the C library and are
- * required because there is no C type that consistently represents the native
- * data width. acpi_size is needed because there is no guarantee that a
- * kernel-level C library is present.
+ * indexes. The types are similar to the size_t type in the C library and
+ * are required because there is no C type that consistently represents the
+ * native data width. acpi_size is needed because there is no guarantee
+ * that a kernel-level C library is present.
  *
  * acpi_size        16/32/64-bit unsigned value
  * acpi_native_int  16/32/64-bit signed value
@@ -166,12 +166,14 @@ typedef u64 acpi_physical_address;
 #define ACPI_SIZE_MAX                   ACPI_UINT64_MAX
 
 #define ACPI_USE_NATIVE_DIVIDE	/* Has native 64-bit integer support */
+#define ACPI_USE_NATIVE_MATH64	/* Has native 64-bit integer support */
 
 /*
  * In the case of the Itanium Processor Family (IPF), the hardware does not
- * support misaligned memory transfers. Set the MISALIGNMENT_NOT_SUPPORTED flag
- * to indicate that special precautions must be taken to avoid alignment faults.
- * (IA64 or ia64 is currently used by existing compilers to indicate IPF.)
+ * support misaligned memory transfers. Set the MISALIGNMENT_NOT_SUPPORTED
+ * flag to indicate that special precautions must be taken to avoid alignment
+ * faults. (IA64 or ia64 is currently used by existing compilers to indicate
+ * IPF.)
  *
  * Note: EM64T and other X86-64 processors support misaligned transfers,
  * so there is no need to define this flag.
@@ -309,8 +311,8 @@ typedef u64 acpi_physical_address;
 #endif
 
 /*
- * Some compilers complain about unused variables. Sometimes we don't want to
- * use all the variables (for example, _acpi_module_name). This allows us
+ * Some compilers complain about unused variables. Sometimes we don't want
+ * to use all the variables (for example, _acpi_module_name). This allows us
  * to tell the compiler in a per-variable manner that a variable
  * is unused
  */
@@ -319,8 +321,9 @@ typedef u64 acpi_physical_address;
 #endif
 
 /*
- * All ACPICA external functions that are available to the rest of the kernel
- * are tagged with thes macros which can be defined as appropriate for the host.
+ * All ACPICA external functions that are available to the rest of the
+ * kernel are tagged with these macros which can be defined as appropriate
+ * for the host.
  *
  * Notes:
  * ACPI_EXPORT_SYMBOL_INIT is used for initialization and termination
@@ -383,7 +386,8 @@ typedef u64 acpi_physical_address;
 
 /******************************************************************************
  *
- * ACPI Specification constants (Do not change unless the specification changes)
+ * ACPI Specification constants (Do not change unless the specification
+ * changes)
  *
  *****************************************************************************/
 
@@ -464,6 +468,8 @@ typedef void *acpi_handle;	/* Actually a ptr to a NS Node */
 #define ACPI_NSEC_PER_MSEC              1000000L
 #define ACPI_NSEC_PER_SEC               1000000000L
 
+#define ACPI_TIME_AFTER(a, b)           ((s64)((b) - (a)) < 0)
+
 /* Owner IDs are used to track namespace nodes for selective deletion */
 
 typedef u8 acpi_owner_id;
@@ -479,15 +485,15 @@ typedef u8 acpi_owner_id;
 /*
  * Constants with special meanings
  */
-#define ACPI_ROOT_OBJECT                ACPI_ADD_PTR (acpi_handle, NULL, ACPI_MAX_PTR)
+#define ACPI_ROOT_OBJECT                ((acpi_handle) ACPI_TO_POINTER (ACPI_MAX_PTR))
 #define ACPI_WAIT_FOREVER               0xFFFF	/* u16, as per ACPI spec */
 #define ACPI_DO_NOT_WAIT                0
 
 /*
- * Obsolete: Acpi integer width. In ACPI version 1 (1996), integers are 32 bits.
- * In ACPI version 2 (2000) and later, integers are 64 bits. Note that this
- * pertains to the ACPI integer type only, not to other integers used in the
- * implementation of the ACPICA subsystem.
+ * Obsolete: Acpi integer width. In ACPI version 1 (1996), integers are
+ * 32 bits. In ACPI version 2 (2000) and later, integers are max 64 bits.
+ * Note that this pertains to the ACPI integer type only, not to other
+ * integers used in the implementation of the ACPICA subsystem.
  *
  * 01/2010: This type is obsolete and has been removed from the entire ACPICA
  * code base. It remains here for compatibility with device drivers that use
@@ -526,13 +532,13 @@ typedef u64 acpi_integer;
 #define ACPI_CAST_INDIRECT_PTR(t, p)    ((t **) (acpi_uintptr_t) (p))
 #define ACPI_ADD_PTR(t, a, b)           ACPI_CAST_PTR (t, (ACPI_CAST_PTR (u8, (a)) + (acpi_size)(b)))
 #define ACPI_SUB_PTR(t, a, b)           ACPI_CAST_PTR (t, (ACPI_CAST_PTR (u8, (a)) - (acpi_size)(b)))
-#define ACPI_PTR_DIFF(a, b)             (acpi_size) (ACPI_CAST_PTR (u8, (a)) - ACPI_CAST_PTR (u8, (b)))
+#define ACPI_PTR_DIFF(a, b)             ((acpi_size) (ACPI_CAST_PTR (u8, (a)) - ACPI_CAST_PTR (u8, (b))))
 
 /* Pointer/Integer type conversions */
 
-#define ACPI_TO_POINTER(i)              ACPI_ADD_PTR (void, (void *) NULL,(acpi_size) i)
-#define ACPI_TO_INTEGER(p)              ACPI_PTR_DIFF (p, (void *) NULL)
-#define ACPI_OFFSET(d, f)               ACPI_PTR_DIFF (&(((d *) 0)->f), (void *) NULL)
+#define ACPI_TO_POINTER(i)              ACPI_ADD_PTR (void, (void *) 0, (acpi_size) (i))
+#define ACPI_TO_INTEGER(p)              ACPI_PTR_DIFF (p, (void *) 0)
+#define ACPI_OFFSET(d, f)               ACPI_PTR_DIFF (&(((d *) 0)->f), (void *) 0)
 #define ACPI_PHYSADDR_TO_PTR(i)         ACPI_TO_POINTER(i)
 #define ACPI_PTR_TO_PHYSADDR(i)         ACPI_TO_INTEGER(i)
 
@@ -550,6 +556,13 @@ typedef u64 acpi_integer;
 
 #define ACPI_VALIDATE_RSDP_SIG(a)       (!strncmp (ACPI_CAST_PTR (char, (a)), ACPI_SIG_RSDP, 8))
 #define ACPI_MAKE_RSDP_SIG(dest)        (memcpy (ACPI_CAST_PTR (char, (dest)), ACPI_SIG_RSDP, 8))
+
+/*
+ * Algorithm to obtain access bit width.
+ * Can be used with access_width of struct acpi_generic_address and access_size of
+ * struct acpi_resource_generic_register.
+ */
+#define ACPI_ACCESS_BIT_WIDTH(size)     (1 << ((size) + 2))
 
 /*******************************************************************************
  *
@@ -629,8 +642,9 @@ typedef u64 acpi_integer;
 #define ACPI_NOTIFY_LOCALITY_UPDATE     (u8) 0x0B
 #define ACPI_NOTIFY_SHUTDOWN_REQUEST    (u8) 0x0C
 #define ACPI_NOTIFY_AFFINITY_UPDATE     (u8) 0x0D
+#define ACPI_NOTIFY_MEMORY_UPDATE       (u8) 0x0E
 
-#define ACPI_GENERIC_NOTIFY_MAX         0x0D
+#define ACPI_GENERIC_NOTIFY_MAX         0x0E
 #define ACPI_SPECIFIC_NOTIFY_MAX        0x84
 
 /*
@@ -667,10 +681,11 @@ typedef u32 acpi_object_type;
 
 /*
  * These are object types that do not map directly to the ACPI
- * object_type() operator. They are used for various internal purposes only.
- * If new predefined ACPI_TYPEs are added (via the ACPI specification), these
- * internal types must move upwards. (There is code that depends on these
- * values being contiguous with the external types above.)
+ * object_type() operator. They are used for various internal purposes
+ * only. If new predefined ACPI_TYPEs are added (via the ACPI
+ * specification), these internal types must move upwards. (There
+ * is code that depends on these values being contiguous with the
+ * external types above.)
  */
 #define ACPI_TYPE_LOCAL_REGION_FIELD    0x11
 #define ACPI_TYPE_LOCAL_BANK_FIELD      0x12
@@ -770,7 +785,7 @@ typedef u32 acpi_event_status;
  *   |  | | |  +-- Type of dispatch:to method, handler, notify, or none
  *   |  | | +----- Interrupt type: edge or level triggered
  *   |  | +------- Is a Wake GPE
- *   |  +--------- Is GPE masked by the software GPE masking machanism
+ *   |  +--------- Has been enabled automatically at init time
  *   +------------ <Reserved>
  */
 #define ACPI_GPE_DISPATCH_NONE          (u8) 0x00
@@ -786,6 +801,7 @@ typedef u32 acpi_event_status;
 #define ACPI_GPE_XRUPT_TYPE_MASK        (u8) 0x08
 
 #define ACPI_GPE_CAN_WAKE               (u8) 0x10
+#define ACPI_GPE_AUTO_ENABLED           (u8) 0x20
 
 /*
  * Flags for GPE and Lock interfaces
@@ -908,8 +924,8 @@ struct acpi_sleep_functions {
  */
 
 /*
- * Note: Type == ACPI_TYPE_ANY (0) is used to indicate a NULL package element
- * or an unresolved named reference.
+ * Note: Type == ACPI_TYPE_ANY (0) is used to indicate a NULL package
+ * element or an unresolved named reference.
  */
 union acpi_object {
 	acpi_object_type type;	/* See definition of acpi_ns_type for values */
@@ -1166,7 +1182,7 @@ struct acpi_pnp_device_id_list {
 
 /*
  * Structure returned from acpi_get_object_info.
- * Optimized for both 32- and 64-bit builds
+ * Optimized for both 32-bit and 64-bit builds.
  */
 struct acpi_device_info {
 	u32 info_size;		/* Size of info, including ID strings */
@@ -1285,6 +1301,8 @@ typedef enum {
 #define ACPI_OSI_WIN_7                  0x0B
 #define ACPI_OSI_WIN_8                  0x0C
 #define ACPI_OSI_WIN_10                 0x0D
+#define ACPI_OSI_WIN_10_RS1             0x0E
+#define ACPI_OSI_WIN_10_RS2             0x0F
 
 /* Definitions of getopt */
 

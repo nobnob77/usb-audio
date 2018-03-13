@@ -149,7 +149,7 @@ static inline void get_current_time(u8 *timeval_buf, int buf_len)
 
 	getnstimeofday64(&ts64);
 
-	tv_usec = ts64.tv_nsec/NSEC_PER_USEC;
+	tv_usec = ts64.tv_nsec / NSEC_PER_USEC;
 
 	timeval_buf[0] = (u8)(ts64.tv_sec >> 24);
 	timeval_buf[1] = (u8)(ts64.tv_sec >> 16);
@@ -173,8 +173,6 @@ static inline void get_current_time(u8 *timeval_buf, int buf_len)
 
 /* struct scsi_cmnd transfer buffer access utilities */
 enum xfer_buf_dir	{TO_XFER_BUF, FROM_XFER_BUF};
-
-int rtsx_read_pci_cfg_byte(u8 bus, u8 dev, u8 func, u8 offset, u8 *val);
 
 #define _MSG_TRACE
 

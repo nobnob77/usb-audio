@@ -480,9 +480,7 @@ static int mic_dma_setup_irq(struct mic_dma_chan *ch)
 		to_mbus_hw_ops(ch)->request_threaded_irq(to_mbus_device(ch),
 			mic_dma_intr_handler, mic_dma_thread_fn,
 			"mic dma_channel", ch, ch->ch_num);
-	if (IS_ERR(ch->cookie))
-		return PTR_ERR(ch->cookie);
-	return 0;
+	return PTR_ERR_OR_ZERO(ch->cookie);
 }
 
 static inline void mic_dma_free_irq(struct mic_dma_chan *ch)
@@ -554,9 +552,7 @@ static int mic_dma_init(struct mic_dma_device *mic_dma_dev,
 	int ret;
 
 	for (i = first_chan; i < first_chan + MIC_DMA_NUM_CHAN; i++) {
-		unsigned long data;
 		ch = &mic_dma_dev->mic_ch[i];
-		data = (unsigned long)ch;
 		ch->ch_num = i;
 		ch->owner = owner;
 		spin_lock_init(&ch->cleanup_lock);

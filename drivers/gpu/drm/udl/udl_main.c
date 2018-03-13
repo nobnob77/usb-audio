@@ -11,6 +11,7 @@
  * more details.
  */
 #include <drm/drmP.h>
+#include <drm/drm_crtc_helper.h>
 #include "udl_drv.h"
 
 /* -BULK_SIZE as per usb-skeleton. Can we get full page and avoid overhead? */
@@ -98,17 +99,23 @@ success:
 static int udl_select_std_channel(struct udl_device *udl)
 {
 	int ret;
-	u8 set_def_chn[] = {0x57, 0xCD, 0xDC, 0xA7,
-			    0x1C, 0x88, 0x5E, 0x15,
-			    0x60, 0xFE, 0xC6, 0x97,
-			    0x16, 0x3D, 0x47, 0xF2};
+	static const u8 set_def_chn[] = {0x57, 0xCD, 0xDC, 0xA7,
+					 0x1C, 0x88, 0x5E, 0x15,
+					 0x60, 0xFE, 0xC6, 0x97,
+					 0x16, 0x3D, 0x47, 0xF2};
+	void *sendbuf;
+
+	sendbuf = kmemdup(set_def_chn, sizeof(set_def_chn), GFP_KERNEL);
+	if (!sendbuf)
+		return -ENOMEM;
 
 	ret = usb_control_msg(udl->udev,
 			      usb_sndctrlpipe(udl->udev, 0),
 			      NR_USB_REQUEST_CHANNEL,
 			      (USB_DIR_OUT | USB_TYPE_VENDOR), 0, 0,
-			      set_def_chn, sizeof(set_def_chn),
+			      sendbuf, sizeof(set_def_chn),
 			      USB_CTRL_SET_TIMEOUT);
+	kfree(sendbuf);
 	return ret < 0 ? ret : 0;
 }
 
@@ -344,6 +351,8 @@ int udl_driver_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto err_fb;
 
+	drm_kms_helper_poll_init(dev);
+
 	return 0;
 err_fb:
 	udl_fbdev_cleanup(dev);
@@ -361,11 +370,11 @@ int udl_drop_usb(struct drm_device *dev)
 	return 0;
 }
 
-int udl_driver_unload(struct drm_device *dev)
+void udl_driver_unload(struct drm_device *dev)
 {
 	struct udl_device *udl = dev->dev_private;
 
-	drm_vblank_cleanup(dev);
+	drm_kms_helper_poll_fini(dev);
 
 	if (udl->urbs.count)
 		udl_free_urb_list(dev);
@@ -373,5 +382,4 @@ int udl_driver_unload(struct drm_device *dev)
 	udl_fbdev_cleanup(dev);
 	udl_modeset_cleanup(dev);
 	kfree(udl);
-	return 0;
 }

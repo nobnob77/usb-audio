@@ -26,8 +26,9 @@
  * Authors: Dave Airlie <airlied@redhat.com>
  */
 #include <drm/drmP.h>
+#include <drm/ttm/ttm_page_alloc.h>
+
 #include "mgag200_drv.h"
-#include <ttm/ttm_page_alloc.h>
 
 static inline struct mga_device *
 mgag200_bdev(struct ttm_bo_device *bd)
@@ -215,9 +216,10 @@ static struct ttm_tt *mgag200_ttm_tt_create(struct ttm_bo_device *bdev,
 	return tt;
 }
 
-static int mgag200_ttm_tt_populate(struct ttm_tt *ttm)
+static int mgag200_ttm_tt_populate(struct ttm_tt *ttm,
+			struct ttm_operation_ctx *ctx)
 {
-	return ttm_pool_populate(ttm);
+	return ttm_pool_populate(ttm, ctx);
 }
 
 static void mgag200_ttm_tt_unpopulate(struct ttm_tt *ttm)
@@ -230,13 +232,12 @@ struct ttm_bo_driver mgag200_bo_driver = {
 	.ttm_tt_populate = mgag200_ttm_tt_populate,
 	.ttm_tt_unpopulate = mgag200_ttm_tt_unpopulate,
 	.init_mem_type = mgag200_bo_init_mem_type,
+	.eviction_valuable = ttm_bo_eviction_valuable,
 	.evict_flags = mgag200_bo_evict_flags,
 	.move = NULL,
 	.verify_access = mgag200_bo_verify_access,
 	.io_mem_reserve = &mgag200_ttm_io_mem_reserve,
 	.io_mem_free = &mgag200_ttm_io_mem_free,
-	.lru_tail = &ttm_bo_default_lru_tail,
-	.swap_lru_tail = &ttm_bo_default_swap_lru_tail,
 };
 
 int mgag200_mm_init(struct mga_device *mdev)
@@ -353,6 +354,7 @@ static inline u64 mgag200_bo_gpu_offset(struct mgag200_bo *bo)
 
 int mgag200_bo_pin(struct mgag200_bo *bo, u32 pl_flag, u64 *gpu_addr)
 {
+	struct ttm_operation_ctx ctx = { false, false };
 	int i, ret;
 
 	if (bo->pin_count) {
@@ -365,7 +367,7 @@ int mgag200_bo_pin(struct mgag200_bo *bo, u32 pl_flag, u64 *gpu_addr)
 	mgag200_ttm_placement(bo, pl_flag);
 	for (i = 0; i < bo->placement.num_placement; i++)
 		bo->placements[i].flags |= TTM_PL_FLAG_NO_EVICT;
-	ret = ttm_bo_validate(&bo->bo, &bo->placement, false, false);
+	ret = ttm_bo_validate(&bo->bo, &bo->placement, &ctx);
 	if (ret)
 		return ret;
 
@@ -377,6 +379,7 @@ int mgag200_bo_pin(struct mgag200_bo *bo, u32 pl_flag, u64 *gpu_addr)
 
 int mgag200_bo_unpin(struct mgag200_bo *bo)
 {
+	struct ttm_operation_ctx ctx = { false, false };
 	int i;
 	if (!bo->pin_count) {
 		DRM_ERROR("unpin bad %p\n", bo);
@@ -388,11 +391,12 @@ int mgag200_bo_unpin(struct mgag200_bo *bo)
 
 	for (i = 0; i < bo->placement.num_placement ; i++)
 		bo->placements[i].flags &= ~TTM_PL_FLAG_NO_EVICT;
-	return ttm_bo_validate(&bo->bo, &bo->placement, false, false);
+	return ttm_bo_validate(&bo->bo, &bo->placement, &ctx);
 }
 
 int mgag200_bo_push_sysram(struct mgag200_bo *bo)
 {
+	struct ttm_operation_ctx ctx = { false, false };
 	int i, ret;
 	if (!bo->pin_count) {
 		DRM_ERROR("unpin bad %p\n", bo);
@@ -409,7 +413,7 @@ int mgag200_bo_push_sysram(struct mgag200_bo *bo)
 	for (i = 0; i < bo->placement.num_placement ; i++)
 		bo->placements[i].flags |= TTM_PL_FLAG_NO_EVICT;
 
-	ret = ttm_bo_validate(&bo->bo, &bo->placement, false, false);
+	ret = ttm_bo_validate(&bo->bo, &bo->placement, &ctx);
 	if (ret) {
 		DRM_ERROR("pushing to VRAM failed\n");
 		return ret;

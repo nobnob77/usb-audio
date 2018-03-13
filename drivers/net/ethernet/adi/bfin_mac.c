@@ -986,7 +986,7 @@ static int bfin_ptp_enable(struct ptp_clock_info *ptp,
 	return -EOPNOTSUPP;
 }
 
-static struct ptp_clock_info bfin_ptp_caps = {
+static const struct ptp_clock_info bfin_ptp_caps = {
 	.owner		= THIS_MODULE,
 	.name		= "BF518 clock",
 	.max_adj	= 0,
@@ -1092,9 +1092,11 @@ static void tx_reclaim_skb(struct bfin_mac_local *lp)
 	return;
 }
 
-static void tx_reclaim_skb_timeout(unsigned long lp)
+static void tx_reclaim_skb_timeout(struct timer_list *t)
 {
-	tx_reclaim_skb((struct bfin_mac_local *)lp);
+	struct bfin_mac_local *lp = from_timer(lp, t, tx_reclaim_timer);
+
+	tx_reclaim_skb(lp);
 }
 
 static int bfin_mac_hard_start_xmit(struct sk_buff *skb,
@@ -1206,7 +1208,7 @@ static void bfin_mac_rx(struct bfin_mac_local *lp)
 	/* reserve 2 bytes for RXDWA padding */
 	skb_reserve(new_skb, NET_IP_ALIGN);
 	/* Invalidate the data cache of skb->data range when it is write back
-	 * cache. It will prevent overwritting the new data from DMA
+	 * cache. It will prevent overwriting the new data from DMA
 	 */
 	blackfin_dcache_invalidate_range((unsigned long)new_skb->head,
 					 (unsigned long)new_skb->end);
@@ -1274,7 +1276,7 @@ static int bfin_mac_poll(struct napi_struct *napi, int budget)
 	}
 
 	if (i < budget) {
-		napi_complete(napi);
+		napi_complete_done(napi, i);
 		if (test_and_clear_bit(BFIN_MAC_RX_IRQ_DISABLED, &lp->flags))
 			enable_irq(IRQ_MAC_RX);
 	}
@@ -1571,7 +1573,6 @@ static const struct net_device_ops bfin_mac_netdev_ops = {
 	.ndo_set_rx_mode	= bfin_mac_set_multicast_list,
 	.ndo_do_ioctl           = bfin_mac_ioctl,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_change_mtu		= eth_change_mtu,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller	= bfin_mac_poll_controller,
 #endif
@@ -1651,9 +1652,7 @@ static int bfin_mac_probe(struct platform_device *pdev)
 	ndev->netdev_ops = &bfin_mac_netdev_ops;
 	ndev->ethtool_ops = &bfin_mac_ethtool_ops;
 
-	init_timer(&lp->tx_reclaim_timer);
-	lp->tx_reclaim_timer.data = (unsigned long)lp;
-	lp->tx_reclaim_timer.function = tx_reclaim_skb_timeout;
+	timer_setup(&lp->tx_reclaim_timer, tx_reclaim_skb_timeout, 0);
 
 	lp->flags = 0;
 	netif_napi_add(ndev, &lp->napi, bfin_mac_poll, CONFIG_BFIN_RX_DESC_NUM);

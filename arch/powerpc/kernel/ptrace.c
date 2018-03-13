@@ -34,7 +34,8 @@
 #include <linux/perf_event.h>
 #include <linux/context_tracking.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
+#include <linux/pkeys.h>
 #include <asm/page.h>
 #include <asm/pgtable.h>
 #include <asm/switch_to.h>
@@ -127,12 +128,19 @@ static void flush_tmregs_to_thread(struct task_struct *tsk)
 	 * If task is not current, it will have been flushed already to
 	 * it's thread_struct during __switch_to().
 	 *
-	 * A reclaim flushes ALL the state.
+	 * A reclaim flushes ALL the state or if not in TM save TM SPRs
+	 * in the appropriate thread structures from live.
 	 */
 
-	if (tsk == current && MSR_TM_SUSPENDED(mfmsr()))
-		tm_reclaim_current(TM_CAUSE_SIGNAL);
+	if ((!cpu_has_feature(CPU_FTR_TM)) || (tsk != current))
+		return;
 
+	if (MSR_TM_SUSPENDED(mfmsr())) {
+		tm_reclaim_current(TM_CAUSE_SIGNAL);
+	} else {
+		tm_enable();
+		tm_save_sprs(&(tsk->thread));
+	}
 }
 #else
 static inline void flush_tmregs_to_thread(struct task_struct *tsk) { }
@@ -275,6 +283,18 @@ int ptrace_get_reg(struct task_struct *task, int regno, unsigned long *data)
 
 	if (regno == PT_DSCR)
 		return get_user_dscr(task, data);
+
+#ifdef CONFIG_PPC64
+	/*
+	 * softe copies paca->irq_soft_mask variable state. Since irq_soft_mask is
+	 * no more used as a flag, lets force usr to alway see the softe value as 1
+	 * which means interrupts are not soft disabled.
+	 */
+	if (regno == PT_SOFTE) {
+		*data = 1;
+		return  0;
+	}
+#endif
 
 	if (regno < (sizeof(struct pt_regs) / sizeof(unsigned long))) {
 		*data = ((unsigned long *)task->thread.regs)[regno];
@@ -462,6 +482,10 @@ static int fpr_set(struct task_struct *target, const struct user_regset *regset,
 	int i;
 
 	flush_fp_to_thread(target);
+
+	for (i = 0; i < 32 ; i++)
+		buf[i] = target->thread.TS_FPR(i);
+	buf[32] = target->thread.fp_state.fpscr;
 
 	/* copy to local buffer then write that out */
 	i = user_regset_copyin(&pos, &count, &kbuf, &ubuf, buf, 0, -1);
@@ -671,6 +695,9 @@ static int vsr_set(struct task_struct *target, const struct user_regset *regset,
 	flush_fp_to_thread(target);
 	flush_altivec_to_thread(target);
 	flush_vsx_to_thread(target);
+
+	for (i = 0; i < 32 ; i++)
+		buf[i] = target->thread.fp_state.fpr[i][TS_VSRLOWOFFSET];
 
 	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 				 buf, 0, 32 * sizeof(double));
@@ -1019,6 +1046,10 @@ static int tm_cfpr_set(struct task_struct *target,
 	flush_fp_to_thread(target);
 	flush_altivec_to_thread(target);
 
+	for (i = 0; i < 32; i++)
+		buf[i] = target->thread.TS_CKFPR(i);
+	buf[32] = target->thread.ckfp_state.fpscr;
+
 	/* copy to local buffer then write that out */
 	i = user_regset_copyin(&pos, &count, &kbuf, &ubuf, buf, 0, -1);
 	if (i)
@@ -1282,6 +1313,9 @@ static int tm_cvsx_set(struct task_struct *target,
 	flush_fp_to_thread(target);
 	flush_altivec_to_thread(target);
 	flush_vsx_to_thread(target);
+
+	for (i = 0; i < 32 ; i++)
+		buf[i] = target->thread.ckfp_state.fpr[i][TS_VSRLOWOFFSET];
 
 	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 				 buf, 0, 32 * sizeof(double));
@@ -1573,11 +1607,8 @@ static int ppr_get(struct task_struct *target,
 		      unsigned int pos, unsigned int count,
 		      void *kbuf, void __user *ubuf)
 {
-	int ret;
-
-	ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
-				&target->thread.ppr, 0, sizeof(u64));
-	return ret;
+	return user_regset_copyout(&pos, &count, &kbuf, &ubuf,
+				   &target->thread.ppr, 0, sizeof(u64));
 }
 
 static int ppr_set(struct task_struct *target,
@@ -1585,11 +1616,8 @@ static int ppr_set(struct task_struct *target,
 		      unsigned int pos, unsigned int count,
 		      const void *kbuf, const void __user *ubuf)
 {
-	int ret;
-
-	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
-				&target->thread.ppr, 0, sizeof(u64));
-	return ret;
+	return user_regset_copyin(&pos, &count, &kbuf, &ubuf,
+				  &target->thread.ppr, 0, sizeof(u64));
 }
 
 static int dscr_get(struct task_struct *target,
@@ -1597,22 +1625,16 @@ static int dscr_get(struct task_struct *target,
 		      unsigned int pos, unsigned int count,
 		      void *kbuf, void __user *ubuf)
 {
-	int ret;
-
-	ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
-				&target->thread.dscr, 0, sizeof(u64));
-	return ret;
+	return user_regset_copyout(&pos, &count, &kbuf, &ubuf,
+				   &target->thread.dscr, 0, sizeof(u64));
 }
 static int dscr_set(struct task_struct *target,
 		      const struct user_regset *regset,
 		      unsigned int pos, unsigned int count,
 		      const void *kbuf, const void __user *ubuf)
 {
-	int ret;
-
-	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
-				&target->thread.dscr, 0, sizeof(u64));
-	return ret;
+	return user_regset_copyin(&pos, &count, &kbuf, &ubuf,
+				  &target->thread.dscr, 0, sizeof(u64));
 }
 #endif
 #ifdef CONFIG_PPC_BOOK3S_64
@@ -1621,22 +1643,16 @@ static int tar_get(struct task_struct *target,
 		      unsigned int pos, unsigned int count,
 		      void *kbuf, void __user *ubuf)
 {
-	int ret;
-
-	ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
-				&target->thread.tar, 0, sizeof(u64));
-	return ret;
+	return user_regset_copyout(&pos, &count, &kbuf, &ubuf,
+				   &target->thread.tar, 0, sizeof(u64));
 }
 static int tar_set(struct task_struct *target,
 		      const struct user_regset *regset,
 		      unsigned int pos, unsigned int count,
 		      const void *kbuf, const void __user *ubuf)
 {
-	int ret;
-
-	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
-				&target->thread.tar, 0, sizeof(u64));
-	return ret;
+	return user_regset_copyin(&pos, &count, &kbuf, &ubuf,
+				  &target->thread.tar, 0, sizeof(u64));
 }
 
 static int ebb_active(struct task_struct *target,
@@ -1772,6 +1788,61 @@ static int pmu_set(struct task_struct *target,
 	return ret;
 }
 #endif
+
+#ifdef CONFIG_PPC_MEM_KEYS
+static int pkey_active(struct task_struct *target,
+		       const struct user_regset *regset)
+{
+	if (!arch_pkeys_enabled())
+		return -ENODEV;
+
+	return regset->n;
+}
+
+static int pkey_get(struct task_struct *target,
+		    const struct user_regset *regset,
+		    unsigned int pos, unsigned int count,
+		    void *kbuf, void __user *ubuf)
+{
+	BUILD_BUG_ON(TSO(amr) + sizeof(unsigned long) != TSO(iamr));
+	BUILD_BUG_ON(TSO(iamr) + sizeof(unsigned long) != TSO(uamor));
+
+	if (!arch_pkeys_enabled())
+		return -ENODEV;
+
+	return user_regset_copyout(&pos, &count, &kbuf, &ubuf,
+				   &target->thread.amr, 0,
+				   ELF_NPKEY * sizeof(unsigned long));
+}
+
+static int pkey_set(struct task_struct *target,
+		      const struct user_regset *regset,
+		      unsigned int pos, unsigned int count,
+		      const void *kbuf, const void __user *ubuf)
+{
+	u64 new_amr;
+	int ret;
+
+	if (!arch_pkeys_enabled())
+		return -ENODEV;
+
+	/* Only the AMR can be set from userspace */
+	if (pos != 0 || count != sizeof(new_amr))
+		return -EINVAL;
+
+	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
+				 &new_amr, 0, sizeof(new_amr));
+	if (ret)
+		return ret;
+
+	/* UAMOR determines which bits of the AMR can be set from userspace. */
+	target->thread.amr = (new_amr & target->thread.uamor) |
+		(target->thread.amr & ~target->thread.uamor);
+
+	return 0;
+}
+#endif /* CONFIG_PPC_MEM_KEYS */
+
 /*
  * These are our native regset flavors.
  */
@@ -1805,6 +1876,9 @@ enum powerpc_regset {
 	REGSET_TAR,		/* TAR register */
 	REGSET_EBB,		/* EBB registers */
 	REGSET_PMR,		/* Performance Monitor Registers */
+#endif
+#ifdef CONFIG_PPC_MEM_KEYS
+	REGSET_PKEY,		/* AMR register */
 #endif
 };
 
@@ -1909,6 +1983,13 @@ static const struct user_regset native_regsets[] = {
 		.core_note_type = NT_PPC_PMU, .n = ELF_NPMU,
 		.size = sizeof(u64), .align = sizeof(u64),
 		.active = pmu_active, .get = pmu_get, .set = pmu_set
+	},
+#endif
+#ifdef CONFIG_PPC_MEM_KEYS
+	[REGSET_PKEY] = {
+		.core_note_type = NT_PPC_PKEY, .n = ELF_NPKEY,
+		.size = sizeof(u64), .align = sizeof(u64),
+		.active = pkey_active, .get = pkey_get, .set = pkey_set
 	},
 #endif
 };

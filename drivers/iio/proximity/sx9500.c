@@ -387,14 +387,18 @@ static int sx9500_read_raw(struct iio_dev *indio_dev,
 			   int *val, int *val2, long mask)
 {
 	struct sx9500_data *data = iio_priv(indio_dev);
+	int ret;
 
 	switch (chan->type) {
 	case IIO_PROXIMITY:
 		switch (mask) {
 		case IIO_CHAN_INFO_RAW:
-			if (iio_buffer_enabled(indio_dev))
-				return -EBUSY;
-			return sx9500_read_proximity(data, chan, val);
+			ret = iio_device_claim_direct_mode(indio_dev);
+			if (ret)
+				return ret;
+			ret = sx9500_read_proximity(data, chan, val);
+			iio_device_release_direct_mode(indio_dev);
+			return ret;
 		case IIO_CHAN_INFO_SAMP_FREQ:
 			return sx9500_read_samp_freq(data, val, val2);
 		default:
@@ -611,7 +615,6 @@ static const struct attribute_group sx9500_attribute_group = {
 };
 
 static const struct iio_info sx9500_info = {
-	.driver_module = THIS_MODULE,
 	.attrs = &sx9500_attribute_group,
 	.read_raw = &sx9500_read_raw,
 	.write_raw = &sx9500_write_raw,
@@ -646,7 +649,6 @@ out:
 
 static const struct iio_trigger_ops sx9500_trigger_ops = {
 	.set_trigger_state = sx9500_set_trigger_state,
-	.owner = THIS_MODULE,
 };
 
 static irqreturn_t sx9500_trigger_handler(int irq, void *private)
@@ -867,6 +869,7 @@ static int sx9500_init_device(struct iio_dev *indio_dev)
 static void sx9500_gpio_probe(struct i2c_client *client,
 			      struct sx9500_data *data)
 {
+	struct gpio_desc *gpiod_int;
 	struct device *dev;
 
 	if (!client)
@@ -874,8 +877,15 @@ static void sx9500_gpio_probe(struct i2c_client *client,
 
 	dev = &client->dev;
 
-	data->gpiod_rst = devm_gpiod_get_index(dev, SX9500_GPIO_RESET,
-					       0, GPIOD_OUT_HIGH);
+	if (client->irq <= 0) {
+		gpiod_int = devm_gpiod_get(dev, SX9500_GPIO_INT, GPIOD_IN);
+		if (IS_ERR(gpiod_int))
+			dev_err(dev, "gpio get irq failed\n");
+		else
+			client->irq = gpiod_to_irq(gpiod_int);
+	}
+
+	data->gpiod_rst = devm_gpiod_get(dev, SX9500_GPIO_RESET, GPIOD_OUT_HIGH);
 	if (IS_ERR(data->gpiod_rst)) {
 		dev_warn(dev, "gpio get reset pin failed\n");
 		data->gpiod_rst = NULL;
@@ -1021,6 +1031,7 @@ static const struct dev_pm_ops sx9500_pm_ops = {
 
 static const struct acpi_device_id sx9500_acpi_match[] = {
 	{"SSX9500", 0},
+	{"SASX9500", 0},
 	{ },
 };
 MODULE_DEVICE_TABLE(acpi, sx9500_acpi_match);

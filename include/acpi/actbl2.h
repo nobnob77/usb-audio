@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2016, Intel Corp.
+ * Copyright (C) 2000 - 2018, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -76,6 +76,7 @@
 #define ACPI_SIG_MCHI           "MCHI"	/* Management Controller Host Interface table */
 #define ACPI_SIG_MSDM           "MSDM"	/* Microsoft Data Management Table */
 #define ACPI_SIG_MTMR           "MTMR"	/* MID Timer table */
+#define ACPI_SIG_SDEI           "SDEI"	/* Software Delegated Exception Interface Table */
 #define ACPI_SIG_SLIC           "SLIC"	/* Software Licensing Description Table */
 #define ACPI_SIG_SPCR           "SPCR"	/* Serial Port Console Redirection table */
 #define ACPI_SIG_SPMI           "SPMI"	/* Server Platform Management Interface table */
@@ -87,6 +88,8 @@
 #define ACPI_SIG_WDAT           "WDAT"	/* Watchdog Action Table */
 #define ACPI_SIG_WDDT           "WDDT"	/* Watchdog Timer Description Table */
 #define ACPI_SIG_WDRT           "WDRT"	/* Watchdog Resource Table */
+#define ACPI_SIG_WSMT           "WSMT"	/* Windows SMM Security Migrations Table */
+#define ACPI_SIG_XXXX           "XXXX"	/* Intermediate AML header for ASL/ASL+ converter */
 
 #ifdef ACPI_UNDEFINED_TABLES
 /*
@@ -662,7 +665,7 @@ struct acpi_ibft_target {
  * IORT - IO Remapping Table
  *
  * Conforms to "IO Remapping Table System Software on ARM Platforms",
- * Document number: ARM DEN 0049B, October 2015
+ * Document number: ARM DEN 0049C, May 2017
  *
  ******************************************************************************/
 
@@ -777,28 +780,50 @@ struct acpi_iort_smmu {
 #define ACPI_IORT_SMMU_V2               0x00000001	/* Generic SMMUv2 */
 #define ACPI_IORT_SMMU_CORELINK_MMU400  0x00000002	/* ARM Corelink MMU-400 */
 #define ACPI_IORT_SMMU_CORELINK_MMU500  0x00000003	/* ARM Corelink MMU-500 */
+#define ACPI_IORT_SMMU_CORELINK_MMU401  0x00000004	/* ARM Corelink MMU-401 */
+#define ACPI_IORT_SMMU_CAVIUM_THUNDERX  0x00000005	/* Cavium thunder_x SMMUv2 */
 
 /* Masks for Flags field above */
 
 #define ACPI_IORT_SMMU_DVM_SUPPORTED    (1)
 #define ACPI_IORT_SMMU_COHERENT_WALK    (1<<1)
 
+/* Global interrupt format */
+
+struct acpi_iort_smmu_gsi {
+	u32 nsg_irpt;
+	u32 nsg_irpt_flags;
+	u32 nsg_cfg_irpt;
+	u32 nsg_cfg_irpt_flags;
+};
+
 struct acpi_iort_smmu_v3 {
 	u64 base_address;	/* SMMUv3 base address */
 	u32 flags;
 	u32 reserved;
 	u64 vatos_address;
-	u32 model;		/* O: generic SMMUv3 */
+	u32 model;
 	u32 event_gsiv;
 	u32 pri_gsiv;
 	u32 gerr_gsiv;
 	u32 sync_gsiv;
+	u8 pxm;
+	u8 reserved1;
+	u16 reserved2;
+	u32 id_mapping_index;
 };
+
+/* Values for Model field above */
+
+#define ACPI_IORT_SMMU_V3_GENERIC           0x00000000	/* Generic SMMUv3 */
+#define ACPI_IORT_SMMU_V3_HISILICON_HI161X  0x00000001	/* hi_silicon Hi161x SMMUv3 */
+#define ACPI_IORT_SMMU_V3_CAVIUM_CN99XX     0x00000002	/* Cavium CN99xx SMMUv3 */
 
 /* Masks for Flags field above */
 
 #define ACPI_IORT_SMMU_V3_COHACC_OVERRIDE   (1)
 #define ACPI_IORT_SMMU_V3_HTTU_OVERRIDE     (1<<1)
+#define ACPI_IORT_SMMU_V3_PXM_VALID         (1<<3)
 
 /*******************************************************************************
  *
@@ -1111,6 +1136,19 @@ struct acpi_mtmr_entry {
 
 /*******************************************************************************
  *
+ * SDEI - Software Delegated Exception Interface Descriptor Table
+ *
+ * Conforms to "Software Delegated Exception Interface (SDEI)" ARM DEN0054A,
+ * May 8th, 2017. Copyright 2017 ARM Ltd.
+ *
+ ******************************************************************************/
+
+struct acpi_table_sdei {
+	struct acpi_table_header header;	/* Common ACPI table header */
+};
+
+/*******************************************************************************
+ *
  * SLIC - Software Licensing Description Table
  *
  * Conforms to "Microsoft Software Licensing Tables (SLIC and MSDM)",
@@ -1209,8 +1247,11 @@ enum acpi_spmi_interface_types {
  * TCPA - Trusted Computing Platform Alliance table
  *        Version 2
  *
+ * TCG Hardware Interface Table for TPM 1.2 Clients and Servers
+ *
  * Conforms to "TCG ACPI Specification, Family 1.2 and 2.0",
- * December 19, 2014
+ * Version 1.2, Revision 8
+ * February 27, 2017
  *
  * NOTE: There are two versions of the table with the same signature --
  * the client version and the server version. The common platform_class
@@ -1272,8 +1313,11 @@ struct acpi_table_tcpa_server {
  * TPM2 - Trusted Platform Module (TPM) 2.0 Hardware Interface Table
  *        Version 4
  *
+ * TCG Hardware Interface Table for TPM 2.0 Clients and Servers
+ *
  * Conforms to "TCG ACPI Specification, Family 1.2 and 2.0",
- * December 19, 2014
+ * Version 1.2, Revision 8
+ * February 27, 2017
  *
  ******************************************************************************/
 
@@ -1290,10 +1334,48 @@ struct acpi_table_tpm2 {
 /* Values for start_method above */
 
 #define ACPI_TPM2_NOT_ALLOWED                       0
+#define ACPI_TPM2_RESERVED1                         1
 #define ACPI_TPM2_START_METHOD                      2
+#define ACPI_TPM2_RESERVED3                         3
+#define ACPI_TPM2_RESERVED4                         4
+#define ACPI_TPM2_RESERVED5                         5
 #define ACPI_TPM2_MEMORY_MAPPED                     6
 #define ACPI_TPM2_COMMAND_BUFFER                    7
 #define ACPI_TPM2_COMMAND_BUFFER_WITH_START_METHOD  8
+#define ACPI_TPM2_RESERVED9                         9
+#define ACPI_TPM2_RESERVED10                        10
+#define ACPI_TPM2_COMMAND_BUFFER_WITH_ARM_SMC       11	/* V1.2 Rev 8 */
+#define ACPI_TPM2_RESERVED                          12
+
+/* Optional trailer appears after any start_method subtables */
+
+struct acpi_tpm2_trailer {
+	u8 method_parameters[12];
+	u32 minimum_log_length;	/* Minimum length for the event log area */
+	u64 log_address;	/* Address of the event log area */
+};
+
+/*
+ * Subtables (start_method-specific)
+ */
+
+/* 11: Start Method for ARM SMC (V1.2 Rev 8) */
+
+struct acpi_tpm2_arm_smc {
+	u32 global_interrupt;
+	u8 interrupt_flags;
+	u8 operation_flags;
+	u16 reserved;
+	u32 function_id;
+};
+
+/* Values for interrupt_flags above */
+
+#define ACPI_TPM2_INTERRUPT_SUPPORT     (1)
+
+/* Values for operation_flags above */
+
+#define ACPI_TPM2_IDLE_SUPPORT          (1)
 
 /*******************************************************************************
  *
@@ -1486,6 +1568,27 @@ struct acpi_table_wdrt {
 	u16 max_count;		/* Maximum counter value supported */
 	u8 units;
 };
+
+/*******************************************************************************
+ *
+ * WSMT - Windows SMM Security Migrations Table
+ *        Version 1
+ *
+ * Conforms to "Windows SMM Security Migrations Table",
+ * Version 1.0, April 18, 2016
+ *
+ ******************************************************************************/
+
+struct acpi_table_wsmt {
+	struct acpi_table_header header;	/* Common ACPI table header */
+	u32 protection_flags;
+};
+
+/* Flags for protection_flags field above */
+
+#define ACPI_WSMT_FIXED_COMM_BUFFERS                (1)
+#define ACPI_WSMT_COMM_BUFFER_NESTED_PTR_PROTECTION (2)
+#define ACPI_WSMT_SYSTEM_RESOURCE_PROTECTION        (4)
 
 /* Reset to default packing */
 

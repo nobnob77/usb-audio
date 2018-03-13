@@ -13,10 +13,6 @@
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *  GNU General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- *
  */
 
 #include <linux/kernel.h>
@@ -82,18 +78,6 @@ static int vbi_nr[PVR_NUM] = {[0 ... PVR_NUM-1] = -1};
 module_param_array(vbi_nr, int, NULL, 0444);
 MODULE_PARM_DESC(vbi_nr, "Offset for device's vbi dev minor");
 
-static struct v4l2_fmtdesc pvr_fmtdesc [] = {
-	{
-		.index          = 0,
-		.type           = V4L2_BUF_TYPE_VIDEO_CAPTURE,
-		.flags          = V4L2_FMT_FLAG_COMPRESSED,
-		.description    = "MPEG1/2",
-		// This should really be V4L2_PIX_FMT_MPEG, but xawtv
-		// breaks when I do that.
-		.pixelformat    = 0, // V4L2_PIX_FMT_MPEG,
-	}
-};
-
 #define PVR_FORMAT_PIX  0
 #define PVR_FORMAT_VBI  1
 
@@ -103,17 +87,11 @@ static struct v4l2_format pvr_format [] = {
 		.fmt    = {
 			.pix        = {
 				.width          = 720,
-				.height             = 576,
-				// This should really be V4L2_PIX_FMT_MPEG,
-				// but xawtv breaks when I do that.
-				.pixelformat    = 0, // V4L2_PIX_FMT_MPEG,
+				.height         = 576,
+				.pixelformat    = V4L2_PIX_FMT_MPEG,
 				.field          = V4L2_FIELD_INTERLACED,
-				.bytesperline   = 0,  // doesn't make sense
-						      // here
-				//FIXME : Don't know what to put here...
-				.sizeimage          = (32*1024),
-				.colorspace     = 0, // doesn't make sense here
-				.priv           = 0
+				/* FIXME : Don't know what to put here... */
+				.sizeimage      = 32 * 1024,
 			}
 		}
 	},
@@ -157,6 +135,8 @@ static int pvr2_querycap(struct file *file, void *priv, struct v4l2_capability *
 	case VFL_TYPE_RADIO:
 		cap->device_caps = V4L2_CAP_RADIO;
 		break;
+	default:
+		return -EINVAL;
 	}
 	cap->device_caps |= V4L2_CAP_TUNER | V4L2_CAP_READWRITE;
 	return 0;
@@ -411,11 +391,11 @@ static int pvr2_g_frequency(struct file *file, void *priv, struct v4l2_frequency
 
 static int pvr2_enum_fmt_vid_cap(struct file *file, void *priv, struct v4l2_fmtdesc *fd)
 {
-	/* Only one format is supported : mpeg.*/
-	if (fd->index != 0)
+	/* Only one format is supported: MPEG. */
+	if (fd->index)
 		return -EINVAL;
 
-	memcpy(fd, pvr_fmtdesc, sizeof(struct v4l2_fmtdesc));
+	fd->pixelformat = V4L2_PIX_FMT_MPEG;
 	return 0;
 }
 
@@ -949,8 +929,8 @@ static long pvr2_v4l2_ioctl(struct file *file,
 	if (ret < 0) {
 		if (pvrusb2_debug & PVR2_TRACE_V4LIOCTL) {
 			pvr2_trace(PVR2_TRACE_V4LIOCTL,
-				   "pvr2_v4l2_do_ioctl failure, ret=%ld"
-				   " command was:", ret);
+				   "pvr2_v4l2_do_ioctl failure, ret=%ld command was:",
+ret);
 			v4l_printk_ioctl(pvr2_hdw_get_driver_name(hdw), cmd);
 		}
 	} else {
@@ -1054,7 +1034,7 @@ static int pvr2_v4l2_open(struct file *file)
 		pvr2_trace(PVR2_TRACE_STRUCT,
 			   "Destroying pvr_v4l2_fh id=%p (input mask error)",
 			   fhp);
-
+		v4l2_fh_exit(&fhp->fh);
 		kfree(fhp);
 		return ret;
 	}
@@ -1071,6 +1051,7 @@ static int pvr2_v4l2_open(struct file *file)
 		pvr2_trace(PVR2_TRACE_STRUCT,
 			   "Destroying pvr_v4l2_fh id=%p (input map failure)",
 			   fhp);
+		v4l2_fh_exit(&fhp->fh);
 		kfree(fhp);
 		return -ENOMEM;
 	}
@@ -1193,26 +1174,26 @@ static ssize_t pvr2_v4l2_read(struct file *file,
 }
 
 
-static unsigned int pvr2_v4l2_poll(struct file *file, poll_table *wait)
+static __poll_t pvr2_v4l2_poll(struct file *file, poll_table *wait)
 {
-	unsigned int mask = 0;
+	__poll_t mask = 0;
 	struct pvr2_v4l2_fh *fh = file->private_data;
 	int ret;
 
 	if (fh->fw_mode_flag) {
-		mask |= POLLIN | POLLRDNORM;
+		mask |= EPOLLIN | EPOLLRDNORM;
 		return mask;
 	}
 
 	if (!fh->rhp) {
 		ret = pvr2_v4l2_iosetup(fh);
-		if (ret) return POLLERR;
+		if (ret) return EPOLLERR;
 	}
 
 	poll_wait(file,&fh->wait_data,wait);
 
 	if (pvr2_ioread_avail(fh->rhp) >= 0) {
-		mask |= POLLIN | POLLRDNORM;
+		mask |= EPOLLIN | EPOLLRDNORM;
 	}
 
 	return mask;
@@ -1229,7 +1210,7 @@ static const struct v4l2_file_operations vdev_fops = {
 };
 
 
-static struct video_device vdev_template = {
+static const struct video_device vdev_template = {
 	.fops       = &vdev_fops,
 };
 
@@ -1254,8 +1235,7 @@ static void pvr2_v4l2_dev_init(struct pvr2_v4l2_dev *dip,
 		nr_ptr = video_nr;
 		if (!dip->stream) {
 			pr_err(KBUILD_MODNAME
-				": Failed to set up pvrusb2 v4l video dev"
-				" due to missing stream instance\n");
+				": Failed to set up pvrusb2 v4l video dev due to missing stream instance\n");
 			return;
 		}
 		break;
@@ -1272,8 +1252,7 @@ static void pvr2_v4l2_dev_init(struct pvr2_v4l2_dev *dip,
 		break;
 	default:
 		/* Bail out (this should be impossible) */
-		pr_err(KBUILD_MODNAME ": Failed to set up pvrusb2 v4l dev"
-		    " due to unrecognized config\n");
+		pr_err(KBUILD_MODNAME ": Failed to set up pvrusb2 v4l dev due to unrecognized config\n");
 		return;
 	}
 

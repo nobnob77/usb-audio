@@ -49,83 +49,6 @@
  * File system operations
  */
 
-int
-xfs_fs_geometry(
-	xfs_mount_t		*mp,
-	xfs_fsop_geom_t		*geo,
-	int			new_version)
-{
-
-	memset(geo, 0, sizeof(*geo));
-
-	geo->blocksize = mp->m_sb.sb_blocksize;
-	geo->rtextsize = mp->m_sb.sb_rextsize;
-	geo->agblocks = mp->m_sb.sb_agblocks;
-	geo->agcount = mp->m_sb.sb_agcount;
-	geo->logblocks = mp->m_sb.sb_logblocks;
-	geo->sectsize = mp->m_sb.sb_sectsize;
-	geo->inodesize = mp->m_sb.sb_inodesize;
-	geo->imaxpct = mp->m_sb.sb_imax_pct;
-	geo->datablocks = mp->m_sb.sb_dblocks;
-	geo->rtblocks = mp->m_sb.sb_rblocks;
-	geo->rtextents = mp->m_sb.sb_rextents;
-	geo->logstart = mp->m_sb.sb_logstart;
-	ASSERT(sizeof(geo->uuid)==sizeof(mp->m_sb.sb_uuid));
-	memcpy(geo->uuid, &mp->m_sb.sb_uuid, sizeof(mp->m_sb.sb_uuid));
-	if (new_version >= 2) {
-		geo->sunit = mp->m_sb.sb_unit;
-		geo->swidth = mp->m_sb.sb_width;
-	}
-	if (new_version >= 3) {
-		geo->version = XFS_FSOP_GEOM_VERSION;
-		geo->flags = XFS_FSOP_GEOM_FLAGS_NLINK |
-			     XFS_FSOP_GEOM_FLAGS_DIRV2 |
-			(xfs_sb_version_hasattr(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_ATTR : 0) |
-			(xfs_sb_version_hasquota(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_QUOTA : 0) |
-			(xfs_sb_version_hasalign(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_IALIGN : 0) |
-			(xfs_sb_version_hasdalign(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_DALIGN : 0) |
-			(xfs_sb_version_hasextflgbit(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_EXTFLG : 0) |
-			(xfs_sb_version_hassector(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_SECTOR : 0) |
-			(xfs_sb_version_hasasciici(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_DIRV2CI : 0) |
-			(xfs_sb_version_haslazysbcount(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_LAZYSB : 0) |
-			(xfs_sb_version_hasattr2(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_ATTR2 : 0) |
-			(xfs_sb_version_hasprojid32bit(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_PROJID32 : 0) |
-			(xfs_sb_version_hascrc(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_V5SB : 0) |
-			(xfs_sb_version_hasftype(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_FTYPE : 0) |
-			(xfs_sb_version_hasfinobt(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_FINOBT : 0) |
-			(xfs_sb_version_hassparseinodes(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_SPINODES : 0) |
-			(xfs_sb_version_hasrmapbt(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_RMAPBT : 0) |
-			(xfs_sb_version_hasreflink(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_REFLINK : 0);
-		geo->logsectsize = xfs_sb_version_hassector(&mp->m_sb) ?
-				mp->m_sb.sb_logsectsize : BBSIZE;
-		geo->rtsectsize = mp->m_sb.sb_blocksize;
-		geo->dirblocksize = mp->m_dir_geo->blksize;
-	}
-	if (new_version >= 4) {
-		geo->flags |=
-			(xfs_sb_version_haslogv2(&mp->m_sb) ?
-				XFS_FSOP_GEOM_FLAGS_LOGV2 : 0);
-		geo->logsunit = mp->m_sb.sb_logsunit;
-	}
-	return 0;
-}
-
 static struct xfs_buf *
 xfs_growfs_get_hdr_buf(
 	struct xfs_mount	*mp,
@@ -352,12 +275,7 @@ xfs_growfs_data_private(
 			goto error0;
 		}
 
-		if (xfs_sb_version_hascrc(&mp->m_sb))
-			xfs_btree_init_block(mp, bp, XFS_ABTB_CRC_MAGIC, 0, 1,
-						agno, XFS_BTREE_CRC_BLOCKS);
-		else
-			xfs_btree_init_block(mp, bp, XFS_ABTB_MAGIC, 0, 1,
-						agno, 0);
+		xfs_btree_init_block(mp, bp, XFS_BTNUM_BNO, 0, 1, agno, 0);
 
 		arec = XFS_ALLOC_REC_ADDR(mp, XFS_BUF_TO_BLOCK(bp), 1);
 		arec->ar_startblock = cpu_to_be32(mp->m_ag_prealloc_blocks);
@@ -381,12 +299,7 @@ xfs_growfs_data_private(
 			goto error0;
 		}
 
-		if (xfs_sb_version_hascrc(&mp->m_sb))
-			xfs_btree_init_block(mp, bp, XFS_ABTC_CRC_MAGIC, 0, 1,
-						agno, XFS_BTREE_CRC_BLOCKS);
-		else
-			xfs_btree_init_block(mp, bp, XFS_ABTC_MAGIC, 0, 1,
-						agno, 0);
+		xfs_btree_init_block(mp, bp, XFS_BTNUM_CNT, 0, 1, agno, 0);
 
 		arec = XFS_ALLOC_REC_ADDR(mp, XFS_BUF_TO_BLOCK(bp), 1);
 		arec->ar_startblock = cpu_to_be32(mp->m_ag_prealloc_blocks);
@@ -413,8 +326,8 @@ xfs_growfs_data_private(
 				goto error0;
 			}
 
-			xfs_btree_init_block(mp, bp, XFS_RMAP_CRC_MAGIC, 0, 0,
-						agno, XFS_BTREE_CRC_BLOCKS);
+			xfs_btree_init_block(mp, bp, XFS_BTNUM_RMAP, 0, 0,
+						agno, 0);
 			block = XFS_BUF_TO_BLOCK(bp);
 
 
@@ -488,12 +401,7 @@ xfs_growfs_data_private(
 			goto error0;
 		}
 
-		if (xfs_sb_version_hascrc(&mp->m_sb))
-			xfs_btree_init_block(mp, bp, XFS_IBT_CRC_MAGIC, 0, 0,
-						agno, XFS_BTREE_CRC_BLOCKS);
-		else
-			xfs_btree_init_block(mp, bp, XFS_IBT_MAGIC, 0, 0,
-						agno, 0);
+		xfs_btree_init_block(mp, bp, XFS_BTNUM_INO , 0, 0, agno, 0);
 
 		error = xfs_bwrite(bp);
 		xfs_buf_relse(bp);
@@ -513,13 +421,8 @@ xfs_growfs_data_private(
 				goto error0;
 			}
 
-			if (xfs_sb_version_hascrc(&mp->m_sb))
-				xfs_btree_init_block(mp, bp, XFS_FIBT_CRC_MAGIC,
-						     0, 0, agno,
-						     XFS_BTREE_CRC_BLOCKS);
-			else
-				xfs_btree_init_block(mp, bp, XFS_FIBT_MAGIC, 0,
-						     0, agno, 0);
+			xfs_btree_init_block(mp, bp, XFS_BTNUM_FINO,
+						     0, 0, agno, 0);
 
 			error = xfs_bwrite(bp);
 			xfs_buf_relse(bp);
@@ -540,9 +443,8 @@ xfs_growfs_data_private(
 				goto error0;
 			}
 
-			xfs_btree_init_block(mp, bp, XFS_REFC_CRC_MAGIC,
-					     0, 0, agno,
-					     XFS_BTREE_CRC_BLOCKS);
+			xfs_btree_init_block(mp, bp, XFS_BTNUM_REFC,
+					     0, 0, agno, 0);
 
 			error = xfs_bwrite(bp);
 			xfs_buf_relse(bp);
@@ -592,6 +494,11 @@ xfs_growfs_data_private(
 		 * this doesn't actually exist in the rmap btree.
 		 */
 		xfs_rmap_ag_owner(&oinfo, XFS_RMAP_OWN_NULL);
+		error = xfs_rmap_free(tp, bp, agno,
+				be32_to_cpu(agf->agf_length) - new,
+				new, &oinfo);
+		if (error)
+			goto error0;
 		error = xfs_free_extent(tp,
 				XFS_AGB_TO_FSB(mp, agno,
 					be32_to_cpu(agf->agf_length) - new),
@@ -623,13 +530,27 @@ xfs_growfs_data_private(
 	if (nagimax)
 		mp->m_maxagi = nagimax;
 	if (mp->m_sb.sb_imax_pct) {
-		__uint64_t icount = mp->m_sb.sb_dblocks * mp->m_sb.sb_imax_pct;
+		uint64_t icount = mp->m_sb.sb_dblocks * mp->m_sb.sb_imax_pct;
 		do_div(icount, 100);
 		mp->m_maxicount = icount << mp->m_sb.sb_inopblog;
 	} else
 		mp->m_maxicount = 0;
 	xfs_set_low_space_thresholds(mp);
 	mp->m_alloc_set_aside = xfs_alloc_set_aside(mp);
+
+	/*
+	 * If we expanded the last AG, free the per-AG reservation
+	 * so we can reinitialize it with the new size.
+	 */
+	if (new) {
+		struct xfs_perag	*pag;
+
+		pag = xfs_perag_get(mp, agno);
+		error = xfs_ag_resv_free(pag);
+		xfs_perag_put(pag);
+		if (error)
+			goto out;
+	}
 
 	/* Reserve AG metadata blocks. */
 	error = xfs_fs_reserve_ag_blocks(mp);
@@ -800,17 +721,17 @@ xfs_fs_counts(
 int
 xfs_reserve_blocks(
 	xfs_mount_t             *mp,
-	__uint64_t              *inval,
+	uint64_t              *inval,
 	xfs_fsop_resblks_t      *outval)
 {
-	__int64_t		lcounter, delta;
-	__int64_t		fdblks_delta = 0;
-	__uint64_t		request;
-	__int64_t		free;
+	int64_t			lcounter, delta;
+	int64_t			fdblks_delta = 0;
+	uint64_t		request;
+	int64_t			free;
 	int			error = 0;
 
 	/* If inval is null, report current values and return */
-	if (inval == (__uint64_t *)NULL) {
+	if (inval == (uint64_t *)NULL) {
 		if (!outval)
 			return -EINVAL;
 		outval->resblks = mp->m_resblks;
@@ -911,7 +832,7 @@ out:
 int
 xfs_fs_goingdown(
 	xfs_mount_t	*mp,
-	__uint32_t	inflags)
+	uint32_t	inflags)
 {
 	switch (inflags) {
 	case XFS_FSOP_GOING_FLAGS_DEFAULT: {
@@ -957,7 +878,7 @@ xfs_do_force_shutdown(
 
 	if (!(flags & SHUTDOWN_FORCE_UMOUNT)) {
 		xfs_notice(mp,
-	"%s(0x%x) called from line %d of file %s.  Return address = 0x%p",
+	"%s(0x%x) called from line %d of file %s.  Return address = "PTR_FMT,
 			__func__, flags, lnnum, fname, __return_address);
 	}
 	/*

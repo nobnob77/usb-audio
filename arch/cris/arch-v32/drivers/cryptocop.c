@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Stream co-processor driver for the ETRAX FS
  *
@@ -14,7 +15,7 @@
 #include <linux/spinlock.h>
 #include <linux/stddef.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/io.h>
 #include <linux/atomic.h>
 
@@ -2086,7 +2087,7 @@ static void cryptocop_job_queue_close(void)
 		dma_in_cfg.en = regk_dma_no;
 		REG_WR(dma, IN_DMA_INST, rw_cfg, dma_in_cfg);
 
-		/* Disble the cryptocop. */
+		/* Disable the cryptocop. */
 		rw_cfg = REG_RD(strcop, regi_strcop, rw_cfg);
 		rw_cfg.en = 0;
 		REG_WR(strcop, regi_strcop, rw_cfg, rw_cfg);
@@ -2716,37 +2717,28 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 		}
 	}
 
-	/* Acquire the mm page semaphore. */
-	down_read(&current->mm->mmap_sem);
-
-	err = get_user_pages((unsigned long int)(oper.indata + prev_ix),
+	err = get_user_pages_fast((unsigned long)(oper.indata + prev_ix),
 			     noinpages,
-			     0,  /* read access only for in data */
-			     inpages,
-			     NULL);
+			     false,  /* read access only for in data */
+			     inpages);
 
 	if (err < 0) {
-		up_read(&current->mm->mmap_sem);
 		nooutpages = noinpages = 0;
 		DEBUG_API(printk("cryptocop_ioctl_process: get_user_pages indata\n"));
 		goto error_cleanup;
 	}
 	noinpages = err;
-	if (oper.do_cipher){
-		err = get_user_pages((unsigned long int)oper.cipher_outdata,
+	if (oper.do_cipher) {
+		err = get_user_pages_fast((unsigned long)oper.cipher_outdata,
 				     nooutpages,
-				     FOLL_WRITE, /* write access for out data */
-				     outpages,
-				     NULL);
-		up_read(&current->mm->mmap_sem);
+				     true, /* write access for out data */
+				     outpages);
 		if (err < 0) {
 			nooutpages = 0;
 			DEBUG_API(printk("cryptocop_ioctl_process: get_user_pages outdata\n"));
 			goto error_cleanup;
 		}
 		nooutpages = err;
-	} else {
-		up_read(&current->mm->mmap_sem);
 	}
 
 	/* Add 6 to nooutpages to make room for possibly inserted buffers for storing digest and

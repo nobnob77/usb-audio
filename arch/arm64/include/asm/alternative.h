@@ -1,7 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_ALTERNATIVE_H
 #define __ASM_ALTERNATIVE_H
 
-#include <asm/cpufeature.h>
+#include <asm/cpucaps.h>
 #include <asm/insn.h>
 
 #ifndef __ASSEMBLY__
@@ -10,6 +11,8 @@
 #include <linux/types.h>
 #include <linux/stddef.h>
 #include <linux/stringify.h>
+
+extern int alternatives_applied;
 
 struct alt_instr {
 	s32 orig_offset;	/* offset to original instruction */

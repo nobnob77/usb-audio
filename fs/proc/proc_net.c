@@ -8,7 +8,7 @@
  *  proc net directory handling functions
  */
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include <linux/errno.h>
 #include <linux/time.h>
@@ -17,6 +17,7 @@
 #include <linux/slab.h>
 #include <linux/init.h>
 #include <linux/sched.h>
+#include <linux/sched/task.h>
 #include <linux/module.h>
 #include <linux/bitops.h>
 #include <linux/mount.h>
@@ -134,16 +135,16 @@ static struct dentry *proc_tgid_net_lookup(struct inode *dir,
 	de = ERR_PTR(-ENOENT);
 	net = get_proc_task_net(dir);
 	if (net != NULL) {
-		de = proc_lookup_de(net->proc_net, dir, dentry);
+		de = proc_lookup_de(dir, dentry, net->proc_net);
 		put_net(net);
 	}
 	return de;
 }
 
-static int proc_tgid_net_getattr(struct vfsmount *mnt, struct dentry *dentry,
-		struct kstat *stat)
+static int proc_tgid_net_getattr(const struct path *path, struct kstat *stat,
+				 u32 request_mask, unsigned int query_flags)
 {
-	struct inode *inode = d_inode(dentry);
+	struct inode *inode = d_inode(path->dentry);
 	struct net *net;
 
 	net = get_proc_task_net(inode);
@@ -171,7 +172,7 @@ static int proc_tgid_net_readdir(struct file *file, struct dir_context *ctx)
 	ret = -EINVAL;
 	net = get_proc_task_net(file_inode(file));
 	if (net != NULL) {
-		ret = proc_readdir_de(net->proc_net, file, ctx);
+		ret = proc_readdir_de(file, ctx, net->proc_net);
 		put_net(net);
 	}
 	return ret;
@@ -195,7 +196,7 @@ static __net_init int proc_net_ns_init(struct net *net)
 	if (!netd)
 		goto out;
 
-	netd->subdir = RB_ROOT;
+	netd->subdir = RB_ROOT_CACHED;
 	netd->data = net;
 	netd->nlink = 2;
 	netd->namelen = 3;

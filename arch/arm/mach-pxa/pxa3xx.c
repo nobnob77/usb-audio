@@ -23,7 +23,7 @@
 #include <linux/io.h>
 #include <linux/of.h>
 #include <linux/syscore_ops.h>
-#include <linux/i2c/pxa-i2c.h>
+#include <linux/platform_data/i2c-pxa.h>
 
 #include <asm/mach/map.h>
 #include <asm/suspend.h>
@@ -123,7 +123,7 @@ static void pxa3xx_cpu_pm_suspend(void)
 	PSPR = 0x5c014000;
 
 	/* overwrite with the resume address */
-	*p = virt_to_phys(cpu_resume);
+	*p = __pa_symbol(cpu_resume);
 
 	cpu_suspend(0, pxa3xx_finish_suspend);
 

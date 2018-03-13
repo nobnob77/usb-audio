@@ -22,7 +22,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 
-#include "dvb_frontend.h"
+#include <media/dvb_frontend.h>
 #include "tda665x.h"
 
 struct tda665x_state {
@@ -197,13 +197,12 @@ static int tda665x_set_params(struct dvb_frontend *fe)
 	return 0;
 }
 
-static int tda665x_release(struct dvb_frontend *fe)
+static void tda665x_release(struct dvb_frontend *fe)
 {
 	struct tda665x_state *state = fe->tuner_priv;
 
 	fe->tuner_priv = NULL;
 	kfree(state);
-	return 0;
 }
 
 static const struct dvb_tuner_ops tda665x_ops = {

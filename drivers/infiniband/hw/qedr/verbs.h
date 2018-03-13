@@ -39,6 +39,8 @@ int qedr_modify_port(struct ib_device *, u8 port, int mask,
 		     struct ib_port_modify *props);
 
 int qedr_query_gid(struct ib_device *, u8 port, int index, union ib_gid *gid);
+int qedr_iw_query_gid(struct ib_device *ibdev, u8 port,
+		      int index, union ib_gid *gid);
 
 int qedr_query_pkey(struct ib_device *, u8 port, u16 index, u16 *pkey);
 
@@ -70,7 +72,8 @@ int qedr_query_qp(struct ib_qp *, struct ib_qp_attr *qp_attr,
 		  int qp_attr_mask, struct ib_qp_init_attr *);
 int qedr_destroy_qp(struct ib_qp *ibqp);
 
-struct ib_ah *qedr_create_ah(struct ib_pd *ibpd, struct ib_ah_attr *attr);
+struct ib_ah *qedr_create_ah(struct ib_pd *ibpd, struct rdma_ah_attr *attr,
+			     struct ib_udata *udata);
 int qedr_destroy_ah(struct ib_ah *ibah);
 
 int qedr_dereg_mr(struct ib_mr *);

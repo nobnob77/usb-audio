@@ -14,6 +14,16 @@
 
 #include "amd_acpi.h"
 
+#define AMDGPU_PX_QUIRK_FORCE_ATPX  (1 << 0)
+
+struct amdgpu_px_quirk {
+	u32 chip_vendor;
+	u32 chip_device;
+	u32 subsys_vendor;
+	u32 subsys_device;
+	u32 px_quirk_flags;
+};
+
 struct amdgpu_atpx_functions {
 	bool px_params;
 	bool power_cntl;
@@ -34,6 +44,8 @@ struct amdgpu_atpx {
 
 static struct amdgpu_atpx_priv {
 	bool atpx_detected;
+	bool bridge_pm_usable;
+	unsigned int quirks;
 	/* handle for device - and atpx */
 	acpi_handle dhandle;
 	acpi_handle other_handle;
@@ -204,9 +216,19 @@ static int amdgpu_atpx_validate(struct amdgpu_atpx *atpx)
 
 	atpx->is_hybrid = false;
 	if (valid_bits & ATPX_MS_HYBRID_GFX_SUPPORTED) {
-		printk("ATPX Hybrid Graphics\n");
-		atpx->functions.power_cntl = false;
-		atpx->is_hybrid = true;
+		if (amdgpu_atpx_priv.quirks & AMDGPU_PX_QUIRK_FORCE_ATPX) {
+			printk("ATPX Hybrid Graphics, forcing to ATPX\n");
+			atpx->functions.power_cntl = true;
+			atpx->is_hybrid = false;
+		} else {
+			printk("ATPX Hybrid Graphics\n");
+			/*
+			 * Disable legacy PM methods only when pcie port PM is usable,
+			 * otherwise the device might fail to power off or power on.
+			 */
+			atpx->functions.power_cntl = !amdgpu_atpx_priv.bridge_pm_usable;
+			atpx->is_hybrid = true;
+		}
 	}
 
 	atpx->dgpu_req_power_for_displays = false;
@@ -542,6 +564,31 @@ static const struct vga_switcheroo_handler amdgpu_atpx_handler = {
 	.get_client_id = amdgpu_atpx_get_client_id,
 };
 
+static const struct amdgpu_px_quirk amdgpu_px_quirk_list[] = {
+	/* HG _PR3 doesn't seem to work on this A+A weston board */
+	{ 0x1002, 0x6900, 0x1002, 0x0124, AMDGPU_PX_QUIRK_FORCE_ATPX },
+	{ 0x1002, 0x6900, 0x1028, 0x0812, AMDGPU_PX_QUIRK_FORCE_ATPX },
+	{ 0x1002, 0x6900, 0x1028, 0x0813, AMDGPU_PX_QUIRK_FORCE_ATPX },
+	{ 0, 0, 0, 0, 0 },
+};
+
+static void amdgpu_atpx_get_quirks(struct pci_dev *pdev)
+{
+	const struct amdgpu_px_quirk *p = amdgpu_px_quirk_list;
+
+	/* Apply PX quirks */
+	while (p && p->chip_device != 0) {
+		if (pdev->vendor == p->chip_vendor &&
+		    pdev->device == p->chip_device &&
+		    pdev->subsystem_vendor == p->subsys_vendor &&
+		    pdev->subsystem_device == p->subsys_device) {
+			amdgpu_atpx_priv.quirks |= p->px_quirk_flags;
+			break;
+		}
+		++p;
+	}
+}
+
 /**
  * amdgpu_atpx_detect - detect whether we have PX
  *
@@ -555,24 +602,35 @@ static bool amdgpu_atpx_detect(void)
 	struct pci_dev *pdev = NULL;
 	bool has_atpx = false;
 	int vga_count = 0;
+	bool d3_supported = false;
+	struct pci_dev *parent_pdev;
 
 	while ((pdev = pci_get_class(PCI_CLASS_DISPLAY_VGA << 8, pdev)) != NULL) {
 		vga_count++;
 
 		has_atpx |= (amdgpu_atpx_pci_probe_handle(pdev) == true);
+
+		parent_pdev = pci_upstream_bridge(pdev);
+		d3_supported |= parent_pdev && parent_pdev->bridge_d3;
+		amdgpu_atpx_get_quirks(pdev);
 	}
 
 	while ((pdev = pci_get_class(PCI_CLASS_DISPLAY_OTHER << 8, pdev)) != NULL) {
 		vga_count++;
 
 		has_atpx |= (amdgpu_atpx_pci_probe_handle(pdev) == true);
+
+		parent_pdev = pci_upstream_bridge(pdev);
+		d3_supported |= parent_pdev && parent_pdev->bridge_d3;
+		amdgpu_atpx_get_quirks(pdev);
 	}
 
 	if (has_atpx && vga_count == 2) {
 		acpi_get_name(amdgpu_atpx_priv.atpx.handle, ACPI_FULL_PATHNAME, &buffer);
-		printk(KERN_INFO "vga_switcheroo: detected switching method %s handle\n",
-		       acpi_method_name);
+		pr_info("vga_switcheroo: detected switching method %s handle\n",
+			acpi_method_name);
 		amdgpu_atpx_priv.atpx_detected = true;
+		amdgpu_atpx_priv.bridge_pm_usable = d3_supported;
 		amdgpu_atpx_init();
 		return true;
 	}

@@ -21,6 +21,7 @@
 #include <linux/compat.h>
 #include <linux/personality.h>
 #include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/slab.h>
 #include <linux/syscalls.h>
 #include <linux/uaccess.h>
@@ -56,7 +57,7 @@ do_compat_cache_op(unsigned long start, unsigned long end, int flags)
 	if (end < start || flags)
 		return -EINVAL;
 
-	if (!access_ok(VERIFY_READ, start, end - start))
+	if (!access_ok(VERIFY_READ, (const void __user *)start, end - start))
 		return -EFAULT;
 
 	return __do_compat_cache_op(start, end);

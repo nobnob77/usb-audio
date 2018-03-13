@@ -150,7 +150,7 @@ static int nilfs_symlink(struct inode *dir, struct dentry *dentry,
 	if (err)
 		return err;
 
-	inode = nilfs_new_inode(dir, S_IFLNK | S_IRWXUGO);
+	inode = nilfs_new_inode(dir, S_IFLNK | 0777);
 	err = PTR_ERR(inode);
 	if (IS_ERR(inode))
 		goto out;
@@ -568,7 +568,6 @@ const struct inode_operations nilfs_special_inode_operations = {
 };
 
 const struct inode_operations nilfs_symlink_inode_operations = {
-	.readlink	= generic_readlink,
 	.get_link	= page_get_link,
 	.permission     = nilfs_permission,
 };

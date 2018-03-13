@@ -95,7 +95,6 @@ static int sctp_snmp_seq_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations sctp_snmp_seq_fops = {
-	.owner	 = THIS_MODULE,
 	.open	 = sctp_snmp_seq_open,
 	.read	 = seq_read,
 	.llseek	 = seq_lseek,
@@ -218,8 +217,7 @@ static int sctp_eps_seq_show(struct seq_file *seq, void *v)
 		return -ENOMEM;
 
 	head = &sctp_ep_hashtable[hash];
-	local_bh_disable();
-	read_lock(&head->lock);
+	read_lock_bh(&head->lock);
 	sctp_for_each_hentry(epb, &head->chain) {
 		ep = sctp_ep(epb);
 		sk = epb->sk;
@@ -234,8 +232,7 @@ static int sctp_eps_seq_show(struct seq_file *seq, void *v)
 		sctp_seq_dump_local_addrs(seq, epb);
 		seq_printf(seq, "\n");
 	}
-	read_unlock(&head->lock);
-	local_bh_enable();
+	read_unlock_bh(&head->lock);
 
 	return 0;
 }
@@ -290,12 +287,8 @@ struct sctp_ht_iter {
 static void *sctp_transport_seq_start(struct seq_file *seq, loff_t *pos)
 {
 	struct sctp_ht_iter *iter = seq->private;
-	int err = sctp_transport_walk_start(&iter->hti);
 
-	if (err) {
-		iter->start_fail = 1;
-		return ERR_PTR(err);
-	}
+	sctp_transport_walk_start(&iter->hti);
 
 	iter->start_fail = 0;
 	return sctp_transport_get_idx(seq_file_net(seq), &iter->hti, *pos);
@@ -361,11 +354,11 @@ static int sctp_assocs_seq_show(struct seq_file *seq, void *v)
 	sctp_seq_dump_remote_addrs(seq, assoc);
 	seq_printf(seq, "\t%8lu %5d %5d %4d %4d %4d %8d "
 		   "%8d %8d %8d %8d",
-		assoc->hbinterval, assoc->c.sinit_max_instreams,
-		assoc->c.sinit_num_ostreams, assoc->max_retrans,
+		assoc->hbinterval, assoc->stream.incnt,
+		assoc->stream.outcnt, assoc->max_retrans,
 		assoc->init_retries, assoc->shutdown_retries,
 		assoc->rtx_data_chunks,
-		atomic_read(&sk->sk_wmem_alloc),
+		refcount_read(&sk->sk_wmem_alloc),
 		sk->sk_wmem_queued,
 		sk->sk_sndbuf,
 		sk->sk_rcvbuf);

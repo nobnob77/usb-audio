@@ -197,10 +197,10 @@ static void __percpu_ref_switch_to_percpu(struct percpu_ref *ref)
 	atomic_long_add(PERCPU_COUNT_BIAS, &ref->count);
 
 	/*
-	 * Restore per-cpu operation.  smp_store_release() is paired with
-	 * smp_read_barrier_depends() in __ref_is_percpu() and guarantees
-	 * that the zeroing is visible to all percpu accesses which can see
-	 * the following __PERCPU_REF_ATOMIC clearing.
+	 * Restore per-cpu operation.  smp_store_release() is paired
+	 * with READ_ONCE() in __ref_is_percpu() and guarantees that the
+	 * zeroing is visible to all percpu accesses which can see the
+	 * following __PERCPU_REF_ATOMIC clearing.
 	 */
 	for_each_possible_cpu(cpu)
 		*per_cpu_ptr(percpu_count, cpu) = 0;
@@ -260,6 +260,22 @@ void percpu_ref_switch_to_atomic(struct percpu_ref *ref,
 
 	spin_unlock_irqrestore(&percpu_ref_switch_lock, flags);
 }
+EXPORT_SYMBOL_GPL(percpu_ref_switch_to_atomic);
+
+/**
+ * percpu_ref_switch_to_atomic_sync - switch a percpu_ref to atomic mode
+ * @ref: percpu_ref to switch to atomic mode
+ *
+ * Schedule switching the ref to atomic mode, and wait for the
+ * switch to complete.  Caller must ensure that no other thread
+ * will switch back to percpu mode.
+ */
+void percpu_ref_switch_to_atomic_sync(struct percpu_ref *ref)
+{
+	percpu_ref_switch_to_atomic(ref, NULL);
+	wait_event(percpu_ref_switch_waitq, !ref->confirm_switch);
+}
+EXPORT_SYMBOL_GPL(percpu_ref_switch_to_atomic_sync);
 
 /**
  * percpu_ref_switch_to_percpu - switch a percpu_ref to percpu mode
@@ -290,6 +306,7 @@ void percpu_ref_switch_to_percpu(struct percpu_ref *ref)
 
 	spin_unlock_irqrestore(&percpu_ref_switch_lock, flags);
 }
+EXPORT_SYMBOL_GPL(percpu_ref_switch_to_percpu);
 
 /**
  * percpu_ref_kill_and_confirm - drop the initial ref and schedule confirmation

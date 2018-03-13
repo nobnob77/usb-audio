@@ -64,36 +64,34 @@ static VCHIQ_STATUS_T
 vchiq_blocking_bulk_transfer(VCHIQ_SERVICE_HANDLE_T handle, void *data,
 	unsigned int size, VCHIQ_BULK_DIR_T dir);
 
-/****************************************************************************
-*
-*   vchiq_initialise
-*
-***************************************************************************/
 #define VCHIQ_INIT_RETRIES 10
-VCHIQ_STATUS_T vchiq_initialise(VCHIQ_INSTANCE_T *instanceOut)
+VCHIQ_STATUS_T vchiq_initialise(VCHIQ_INSTANCE_T *instance_out)
 {
 	VCHIQ_STATUS_T status = VCHIQ_ERROR;
 	VCHIQ_STATE_T *state;
 	VCHIQ_INSTANCE_T instance = NULL;
-        int i;
+	int i;
 
 	vchiq_log_trace(vchiq_core_log_level, "%s called", __func__);
 
-        /* VideoCore may not be ready due to boot up timing.
-           It may never be ready if kernel and firmware are mismatched, so don't block forever. */
-        for (i=0; i<VCHIQ_INIT_RETRIES; i++) {
+	/* VideoCore may not be ready due to boot up timing.
+	 * It may never be ready if kernel and firmware are mismatched,so don't
+	 * block forever.
+	 */
+	for (i = 0; i < VCHIQ_INIT_RETRIES; i++) {
 		state = vchiq_get_state();
 		if (state)
 			break;
 		udelay(500);
 	}
-	if (i==VCHIQ_INIT_RETRIES) {
+	if (i == VCHIQ_INIT_RETRIES) {
 		vchiq_log_error(vchiq_core_log_level,
 			"%s: videocore not initialized\n", __func__);
 		goto failed;
-	} else if (i>0) {
+	} else if (i > 0) {
 		vchiq_log_warning(vchiq_core_log_level,
-			"%s: videocore initialized after %d retries\n", __func__, i);
+			"%s: videocore initialized after %d retries\n",
+			__func__, i);
 	}
 
 	instance = kzalloc(sizeof(*instance), GFP_KERNEL);
@@ -108,7 +106,7 @@ VCHIQ_STATUS_T vchiq_initialise(VCHIQ_INSTANCE_T *instanceOut)
 	mutex_init(&instance->bulk_waiter_list_mutex);
 	INIT_LIST_HEAD(&instance->bulk_waiter_list);
 
-	*instanceOut = instance;
+	*instance_out = instance;
 
 	status = VCHIQ_SUCCESS;
 
@@ -120,12 +118,6 @@ failed:
 }
 EXPORT_SYMBOL(vchiq_initialise);
 
-/****************************************************************************
-*
-*   vchiq_shutdown
-*
-***************************************************************************/
-
 VCHIQ_STATUS_T vchiq_shutdown(VCHIQ_INSTANCE_T instance)
 {
 	VCHIQ_STATUS_T status;
@@ -134,7 +126,7 @@ VCHIQ_STATUS_T vchiq_shutdown(VCHIQ_INSTANCE_T instance)
 	vchiq_log_trace(vchiq_core_log_level,
 		"%s(%p) called", __func__, instance);
 
-	if (mutex_lock_interruptible(&state->mutex) != 0)
+	if (mutex_lock_killable(&state->mutex) != 0)
 		return VCHIQ_RETRY;
 
 	/* Remove all services */
@@ -147,17 +139,18 @@ VCHIQ_STATUS_T vchiq_shutdown(VCHIQ_INSTANCE_T instance)
 
 	if (status == VCHIQ_SUCCESS) {
 		struct list_head *pos, *next;
+
 		list_for_each_safe(pos, next,
 				&instance->bulk_waiter_list) {
 			struct bulk_waiter_node *waiter;
+
 			waiter = list_entry(pos,
 					struct bulk_waiter_node,
 					list);
 			list_del(pos);
 			vchiq_log_info(vchiq_arm_log_level,
-					"bulk_waiter - cleaned up %x "
-					"for pid %d",
-					(unsigned int)waiter, waiter->pid);
+					"bulk_waiter - cleaned up %pK for pid %d",
+					waiter, waiter->pid);
 			kfree(waiter);
 		}
 		kfree(instance);
@@ -167,22 +160,10 @@ VCHIQ_STATUS_T vchiq_shutdown(VCHIQ_INSTANCE_T instance)
 }
 EXPORT_SYMBOL(vchiq_shutdown);
 
-/****************************************************************************
-*
-*   vchiq_is_connected
-*
-***************************************************************************/
-
-int vchiq_is_connected(VCHIQ_INSTANCE_T instance)
+static int vchiq_is_connected(VCHIQ_INSTANCE_T instance)
 {
 	return instance->connected;
 }
-
-/****************************************************************************
-*
-*   vchiq_connect
-*
-***************************************************************************/
 
 VCHIQ_STATUS_T vchiq_connect(VCHIQ_INSTANCE_T instance)
 {
@@ -192,7 +173,7 @@ VCHIQ_STATUS_T vchiq_connect(VCHIQ_INSTANCE_T instance)
 	vchiq_log_trace(vchiq_core_log_level,
 		"%s(%p) called", __func__, instance);
 
-	if (mutex_lock_interruptible(&state->mutex) != 0) {
+	if (mutex_lock_killable(&state->mutex) != 0) {
 		vchiq_log_trace(vchiq_core_log_level,
 			"%s: call to mutex_lock failed", __func__);
 		status = VCHIQ_RETRY;
@@ -212,12 +193,6 @@ failed:
 	return status;
 }
 EXPORT_SYMBOL(vchiq_connect);
-
-/****************************************************************************
-*
-*   vchiq_add_service
-*
-***************************************************************************/
 
 VCHIQ_STATUS_T vchiq_add_service(
 	VCHIQ_INSTANCE_T              instance,
@@ -257,12 +232,6 @@ VCHIQ_STATUS_T vchiq_add_service(
 	return status;
 }
 EXPORT_SYMBOL(vchiq_add_service);
-
-/****************************************************************************
-*
-*   vchiq_open_service
-*
-***************************************************************************/
 
 VCHIQ_STATUS_T vchiq_open_service(
 	VCHIQ_INSTANCE_T              instance,
@@ -407,13 +376,15 @@ vchiq_blocking_bulk_transfer(VCHIQ_SERVICE_HANDLE_T handle, void *data,
 
 	if (waiter) {
 		VCHIQ_BULK_T *bulk = waiter->bulk_waiter.bulk;
+
 		if (bulk) {
 			/* This thread has an outstanding bulk transfer. */
 			if ((bulk->data != data) ||
 				(bulk->size != size)) {
 				/* This is not a retry of the previous one.
-				** Cancel the signal when the transfer
-				** completes. */
+				 * Cancel the signal when the transfer
+				 * completes.
+				 */
 				spin_lock(&bulk_waiter_spinlock);
 				bulk->userdata = NULL;
 				spin_unlock(&bulk_waiter_spinlock);
@@ -436,9 +407,11 @@ vchiq_blocking_bulk_transfer(VCHIQ_SERVICE_HANDLE_T handle, void *data,
 	if ((status != VCHIQ_RETRY) || fatal_signal_pending(current) ||
 		!waiter->bulk_waiter.bulk) {
 		VCHIQ_BULK_T *bulk = waiter->bulk_waiter.bulk;
+
 		if (bulk) {
 			/* Cancel the signal when the transfer
-			 ** completes. */
+			 * completes.
+			 */
 			spin_lock(&bulk_waiter_spinlock);
 			bulk->userdata = NULL;
 			spin_unlock(&bulk_waiter_spinlock);
@@ -450,8 +423,8 @@ vchiq_blocking_bulk_transfer(VCHIQ_SERVICE_HANDLE_T handle, void *data,
 		list_add(&waiter->list, &instance->bulk_waiter_list);
 		mutex_unlock(&instance->bulk_waiter_list_mutex);
 		vchiq_log_info(vchiq_arm_log_level,
-				"saved bulk_waiter %x for pid %d",
-				(unsigned int)waiter, current->pid);
+				"saved bulk_waiter %pK for pid %d",
+				waiter, current->pid);
 	}
 
 	return status;

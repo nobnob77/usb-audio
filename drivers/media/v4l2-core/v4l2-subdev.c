@@ -14,13 +14,10 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #include <linux/ioctl.h>
+#include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/videodev2.h>
@@ -472,19 +469,19 @@ static long subdev_compat_ioctl32(struct file *file, unsigned int cmd,
 }
 #endif
 
-static unsigned int subdev_poll(struct file *file, poll_table *wait)
+static __poll_t subdev_poll(struct file *file, poll_table *wait)
 {
 	struct video_device *vdev = video_devdata(file);
 	struct v4l2_subdev *sd = vdev_to_v4l2_subdev(vdev);
 	struct v4l2_fh *fh = file->private_data;
 
 	if (!(sd->flags & V4L2_SUBDEV_FL_HAS_EVENTS))
-		return POLLERR;
+		return EPOLLERR;
 
 	poll_wait(file, &fh->wait, wait);
 
 	if (v4l2_event_pending(fh))
-		return POLLPRI;
+		return EPOLLPRI;
 
 	return 0;
 }
@@ -581,13 +578,14 @@ v4l2_subdev_alloc_pad_config(struct v4l2_subdev *sd)
 	if (!sd->entity.num_pads)
 		return NULL;
 
-	cfg = kcalloc(sd->entity.num_pads, sizeof(*cfg), GFP_KERNEL);
+	cfg = kvmalloc_array(sd->entity.num_pads, sizeof(*cfg),
+			     GFP_KERNEL | __GFP_ZERO);
 	if (!cfg)
 		return NULL;
 
 	ret = v4l2_subdev_call(sd, pad, init_cfg, cfg);
 	if (ret < 0 && ret != -ENOIOCTLCMD) {
-		kfree(cfg);
+		kvfree(cfg);
 		return NULL;
 	}
 
@@ -597,7 +595,7 @@ EXPORT_SYMBOL_GPL(v4l2_subdev_alloc_pad_config);
 
 void v4l2_subdev_free_pad_config(struct v4l2_subdev_pad_config *cfg)
 {
-	kfree(cfg);
+	kvfree(cfg);
 }
 EXPORT_SYMBOL_GPL(v4l2_subdev_free_pad_config);
 #endif /* CONFIG_MEDIA_CONTROLLER */

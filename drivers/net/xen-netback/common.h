@@ -113,10 +113,10 @@ struct xenvif_stats {
 	 * A subset of struct net_device_stats that contains only the
 	 * fields that are updated in netback.c for each queue.
 	 */
-	unsigned int rx_bytes;
-	unsigned int rx_packets;
-	unsigned int tx_bytes;
-	unsigned int tx_packets;
+	u64 rx_bytes;
+	u64 rx_packets;
+	u64 tx_bytes;
+	u64 tx_packets;
 
 	/* Additional stats used by xenvif */
 	unsigned long rx_gso_checksum_fixup;
@@ -199,6 +199,7 @@ struct xenvif_queue { /* Per-queue data for xenvif */
 	unsigned long   remaining_credit;
 	struct timer_list credit_timeout;
 	u64 credit_window_start;
+	bool rate_limited;
 
 	/* Statistics */
 	struct xenvif_stats stats;
@@ -306,7 +307,7 @@ static inline struct xenbus_device *xenvif_to_xenbus_device(struct xenvif *vif)
 	return to_xenbus_device(vif->dev->dev.parent);
 }
 
-void xenvif_tx_credit_callback(unsigned long data);
+void xenvif_tx_credit_callback(struct timer_list *t);
 
 struct xenvif *xenvif_alloc(struct device *parent,
 			    domid_t domid,

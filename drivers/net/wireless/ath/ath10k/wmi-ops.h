@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2005-2011 Atheros Communications Inc.
- * Copyright (c) 2011-2014 Qualcomm Atheros, Inc.
+ * Copyright (c) 2011-2017 Qualcomm Atheros, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -377,6 +377,7 @@ ath10k_wmi_mgmt_tx(struct ath10k *ar, struct sk_buff *msdu)
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(msdu);
 	struct sk_buff *skb;
 	int ret;
+	u32 mgmt_tx_cmdid;
 
 	if (!ar->wmi.ops->gen_mgmt_tx)
 		return -EOPNOTSUPP;
@@ -385,12 +386,19 @@ ath10k_wmi_mgmt_tx(struct ath10k *ar, struct sk_buff *msdu)
 	if (IS_ERR(skb))
 		return PTR_ERR(skb);
 
-	ret = ath10k_wmi_cmd_send(ar, skb, ar->wmi.cmd->mgmt_tx_cmdid);
+	if (test_bit(ATH10K_FW_FEATURE_MGMT_TX_BY_REF,
+		     ar->running_fw->fw_file.fw_features))
+		mgmt_tx_cmdid = ar->wmi.cmd->mgmt_tx_send_cmdid;
+	else
+		mgmt_tx_cmdid = ar->wmi.cmd->mgmt_tx_cmdid;
+
+	ret = ath10k_wmi_cmd_send(ar, skb, mgmt_tx_cmdid);
 	if (ret)
 		return ret;
 
 	/* FIXME There's no ACK event for Management Tx. This probably
-	 * shouldn't be called here either. */
+	 * shouldn't be called here either.
+	 */
 	info->flags |= IEEE80211_TX_STAT_ACK;
 	ieee80211_tx_status_irqsafe(ar->hw, msdu);
 
@@ -660,6 +668,9 @@ ath10k_wmi_vdev_spectral_conf(struct ath10k *ar,
 	struct sk_buff *skb;
 	u32 cmd_id;
 
+	if (!ar->wmi.ops->gen_vdev_spectral_conf)
+		return -EOPNOTSUPP;
+
 	skb = ar->wmi.ops->gen_vdev_spectral_conf(ar, arg);
 	if (IS_ERR(skb))
 		return PTR_ERR(skb);
@@ -674,6 +685,9 @@ ath10k_wmi_vdev_spectral_enable(struct ath10k *ar, u32 vdev_id, u32 trigger,
 {
 	struct sk_buff *skb;
 	u32 cmd_id;
+
+	if (!ar->wmi.ops->gen_vdev_spectral_enable)
+		return -EOPNOTSUPP;
 
 	skb = ar->wmi.ops->gen_vdev_spectral_enable(ar, vdev_id, trigger,
 						    enable);

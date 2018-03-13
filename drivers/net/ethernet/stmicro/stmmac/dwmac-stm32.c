@@ -1,8 +1,8 @@
 /*
  * dwmac-stm32.c - DWMAC Specific Glue layer for STM32 MCU
  *
- * Copyright (C) Alexandre Torgue 2015
- * Author:  Alexandre Torgue <alexandre.torgue@gmail.com>
+ * Copyright (C) STMicroelectronics SA 2017
+ * Author:  Alexandre Torgue <alexandre.torgue@st.com> for STMicroelectronics.
  * License terms:  GNU General Public License (GPL), version 2
  *
  */
@@ -107,24 +107,33 @@ static int stm32_dwmac_probe(struct platform_device *pdev)
 		return PTR_ERR(plat_dat);
 
 	dwmac = devm_kzalloc(&pdev->dev, sizeof(*dwmac), GFP_KERNEL);
-	if (!dwmac)
-		return -ENOMEM;
+	if (!dwmac) {
+		ret = -ENOMEM;
+		goto err_remove_config_dt;
+	}
 
 	ret = stm32_dwmac_parse_data(dwmac, &pdev->dev);
 	if (ret) {
 		dev_err(&pdev->dev, "Unable to parse OF data\n");
-		return ret;
+		goto err_remove_config_dt;
 	}
 
 	plat_dat->bsp_priv = dwmac;
 
 	ret = stm32_dwmac_init(plat_dat);
 	if (ret)
-		return ret;
+		goto err_remove_config_dt;
 
 	ret = stmmac_dvr_probe(&pdev->dev, plat_dat, &stmmac_res);
 	if (ret)
-		stm32_dwmac_clk_disable(dwmac);
+		goto err_clk_disable;
+
+	return 0;
+
+err_clk_disable:
+	stm32_dwmac_clk_disable(dwmac);
+err_remove_config_dt:
+	stmmac_remove_config_dt(pdev, plat_dat);
 
 	return ret;
 }

@@ -58,7 +58,6 @@ static int sockstat6_seq_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations sockstat6_seq_fops = {
-	.owner	 = THIS_MODULE,
 	.open	 = sockstat6_seq_open,
 	.read	 = seq_read,
 	.llseek	 = seq_lseek,
@@ -219,7 +218,7 @@ static void snmp6_seq_show_item64(struct seq_file *seq, void __percpu *mib,
 	u64 buff64[SNMP_MIB_MAX];
 	int i;
 
-	memset(buff64, 0, sizeof(unsigned long) * SNMP_MIB_MAX);
+	memset(buff64, 0, sizeof(u64) * SNMP_MIB_MAX);
 
 	snmp_get_cpu_field64_batch(buff64, itemlist, mib, syncpoff);
 	for (i = 0; itemlist[i].name; i++)
@@ -248,7 +247,6 @@ static int snmp6_seq_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations snmp6_seq_fops = {
-	.owner	 = THIS_MODULE,
 	.open	 = snmp6_seq_open,
 	.read	 = seq_read,
 	.llseek	 = seq_lseek,
@@ -274,7 +272,6 @@ static int snmp6_dev_seq_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations snmp6_dev_seq_fops = {
-	.owner	 = THIS_MODULE,
 	.open	 = snmp6_dev_seq_open,
 	.read	 = seq_read,
 	.llseek	 = seq_lseek,

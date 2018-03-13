@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * GPL HEADER START
  *
@@ -38,19 +39,19 @@
 
 #define DEBUG_SUBSYSTEM S_FLD
 
-#include "../../include/linux/libcfs/libcfs.h"
+#include <linux/libcfs/libcfs.h>
 #include <linux/module.h>
 #include <asm/div64.h>
 
-#include "../include/obd.h"
-#include "../include/obd_class.h"
-#include "../include/lustre_ver.h"
-#include "../include/obd_support.h"
-#include "../include/lprocfs_status.h"
+#include <obd.h>
+#include <obd_class.h>
+#include <uapi/linux/lustre/lustre_ver.h>
+#include <obd_support.h>
+#include <lprocfs_status.h>
 
-#include "../include/lustre_req_layout.h"
-#include "../include/lustre_fld.h"
-#include "../include/lustre_mdc.h"
+#include <lustre_req_layout.h>
+#include <lustre_fld.h>
+#include <lustre_mdc.h>
 #include "fld_internal.h"
 
 static int fld_rrb_hash(struct lu_client_fld *fld, u64 seq)
@@ -159,11 +160,6 @@ int fld_client_add_target(struct lu_client_fld *fld,
 	LASSERT(name);
 	LASSERT(tar->ft_srv || tar->ft_exp);
 
-	if (fld->lcf_flags != LUSTRE_FLD_INIT) {
-		CERROR("%s: Attempt to add target %s (idx %llu) on fly - skip it\n",
-		       fld->lcf_name, name, tar->ft_idx);
-		return 0;
-	}
 	CDEBUG(D_INFO, "%s: Adding target %s (idx %llu)\n",
 	       fld->lcf_name, name, tar->ft_idx);
 
@@ -282,7 +278,6 @@ int fld_client_init(struct lu_client_fld *fld,
 	fld->lcf_count = 0;
 	spin_lock_init(&fld->lcf_lock);
 	fld->lcf_hash = &fld_hash[hash];
-	fld->lcf_flags = LUSTRE_FLD_INIT;
 	INIT_LIST_HEAD(&fld->lcf_targets);
 
 	cache_size = FLD_CLIENT_CACHE_SIZE /
@@ -421,8 +416,6 @@ int fld_client_lookup(struct lu_client_fld *fld, u64 seq, u32 *mds,
 	struct lu_fld_target *target;
 	int rc;
 
-	fld->lcf_flags |= LUSTRE_FLD_RUN;
-
 	rc = fld_cache_lookup(fld->lcf_cache, seq, &res);
 	if (rc == 0) {
 		*mds = res.lsr_index;
@@ -433,7 +426,8 @@ int fld_client_lookup(struct lu_client_fld *fld, u64 seq, u32 *mds,
 	target = fld_client_get_target(fld, seq);
 	LASSERT(target);
 
-	CDEBUG(D_INFO, "%s: Lookup fld entry (seq: %#llx) on target %s (idx %llu)\n",
+	CDEBUG(D_INFO,
+	       "%s: Lookup fld entry (seq: %#llx) on target %s (idx %llu)\n",
 	       fld->lcf_name, seq, fld_target_name(target), target->ft_idx);
 
 	res.lsr_start = seq;

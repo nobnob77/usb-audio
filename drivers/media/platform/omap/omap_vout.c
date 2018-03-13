@@ -408,8 +408,8 @@ static int omapvid_setup_overlay(struct omap_vout_device *vout,
 	v4l2_dbg(1, debug, &vout->vid_dev->v4l2_dev,
 		"%s enable=%d addr=%pad width=%d\n height=%d color_mode=%d\n"
 		"rotation=%d mirror=%d posx=%d posy=%d out_width = %d \n"
-		"out_height=%d rotation_type=%d screen_width=%d\n",
-		__func__, ovl->is_enabled(ovl), &info.paddr, info.width, info.height,
+		"out_height=%d rotation_type=%d screen_width=%d\n", __func__,
+		ovl->is_enabled(ovl), &info.paddr, info.width, info.height,
 		info.color_mode, info.rotation, info.mirror, info.pos_x,
 		info.pos_y, info.out_width, info.out_height, info.rotation_type,
 		info.screen_width);
@@ -791,7 +791,8 @@ static int omap_vout_buffer_prepare(struct videobuf_queue *q,
 		dma_addr = dma_map_single(vout->vid_dev->v4l2_dev.dev, (void *) addr,
 				size, DMA_TO_DEVICE);
 		if (dma_mapping_error(vout->vid_dev->v4l2_dev.dev, dma_addr))
-			v4l2_err(&vout->vid_dev->v4l2_dev, "dma_map_single failed\n");
+			v4l2_err(&vout->vid_dev->v4l2_dev,
+				 "dma_map_single failed\n");
 
 		vout->queued_buf_addr[vb->i] = (u8 *)vout->buf_phy_addr[vb->i];
 	}
@@ -838,7 +839,7 @@ static void omap_vout_buffer_release(struct videobuf_queue *q,
 /*
  *  File operations
  */
-static unsigned int omap_vout_poll(struct file *file,
+static __poll_t omap_vout_poll(struct file *file,
 				   struct poll_table_struct *wait)
 {
 	struct omap_vout_device *vout = file->private_data;
@@ -1003,10 +1004,11 @@ static int omap_vout_open(struct file *file)
 	struct omap_vout_device *vout = NULL;
 
 	vout = video_drvdata(file);
-	v4l2_dbg(1, debug, &vout->vid_dev->v4l2_dev, "Entering %s\n", __func__);
 
 	if (vout == NULL)
 		return -ENODEV;
+
+	v4l2_dbg(1, debug, &vout->vid_dev->v4l2_dev, "Entering %s\n", __func__);
 
 	/* for now, we only support single open */
 	if (vout->opened)
@@ -1657,8 +1659,8 @@ static int vidioc_streamoff(struct file *file, void *fh, enum v4l2_buf_type i)
 	/* Turn of the pipeline */
 	ret = omapvid_apply_changes(vout);
 	if (ret)
-		v4l2_err(&vout->vid_dev->v4l2_dev, "failed to change mode in"
-				" streamoff\n");
+		v4l2_err(&vout->vid_dev->v4l2_dev,
+			 "failed to change mode in streamoff\n");
 
 	INIT_LIST_HEAD(&vout->dma_queue);
 	ret = videobuf_streamoff(&vout->vbq);
@@ -1772,8 +1774,8 @@ static int vidioc_g_fbuf(struct file *file, void *fh,
 }
 
 static const struct v4l2_ioctl_ops vout_ioctl_ops = {
-	.vidioc_querycap      			= vidioc_querycap,
-	.vidioc_enum_fmt_vid_out 		= vidioc_enum_fmt_vid_out,
+	.vidioc_querycap			= vidioc_querycap,
+	.vidioc_enum_fmt_vid_out		= vidioc_enum_fmt_vid_out,
 	.vidioc_g_fmt_vid_out			= vidioc_g_fmt_vid_out,
 	.vidioc_try_fmt_vid_out			= vidioc_try_fmt_vid_out,
 	.vidioc_s_fmt_vid_out			= vidioc_s_fmt_vid_out,
@@ -1793,12 +1795,12 @@ static const struct v4l2_ioctl_ops vout_ioctl_ops = {
 };
 
 static const struct v4l2_file_operations omap_vout_fops = {
-	.owner 		= THIS_MODULE,
+	.owner		= THIS_MODULE,
 	.poll		= omap_vout_poll,
 	.unlocked_ioctl	= video_ioctl2,
-	.mmap 		= omap_vout_mmap,
-	.open 		= omap_vout_open,
-	.release 	= omap_vout_release,
+	.mmap		= omap_vout_mmap,
+	.open		= omap_vout_open,
+	.release	= omap_vout_release,
 };
 
 /* Init functions used during driver initialization */
@@ -1858,8 +1860,8 @@ static int __init omap_vout_setup_video_data(struct omap_vout_device *vout)
 	vfd = vout->vfd = video_device_alloc();
 
 	if (!vfd) {
-		printk(KERN_ERR VOUT_NAME ": could not allocate"
-				" video device struct\n");
+		printk(KERN_ERR VOUT_NAME
+		       ": could not allocate video device struct\n");
 		v4l2_ctrl_handler_free(hdl);
 		return -ENOMEM;
 	}
@@ -1984,16 +1986,17 @@ static int __init omap_vout_create_video_devices(struct platform_device *pdev)
 		 */
 		vfd = vout->vfd;
 		if (video_register_device(vfd, VFL_TYPE_GRABBER, -1) < 0) {
-			dev_err(&pdev->dev, ": Could not register "
-					"Video for Linux device\n");
+			dev_err(&pdev->dev,
+				": Could not register Video for Linux device\n");
 			vfd->minor = -1;
 			ret = -ENODEV;
 			goto error2;
 		}
 		video_set_drvdata(vfd, vout);
 
-		dev_info(&pdev->dev, ": registered and initialized"
-				" video device %d\n", vfd->minor);
+		dev_info(&pdev->dev,
+			 ": registered and initialized video device %d\n",
+			 vfd->minor);
 		if (k == (pdev->num_resources - 1))
 			return 0;
 

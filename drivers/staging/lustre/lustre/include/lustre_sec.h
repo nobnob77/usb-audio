@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * GPL HEADER START
  *
@@ -50,6 +51,7 @@ struct brw_page;
 /* Linux specific */
 struct key;
 struct seq_file;
+struct lustre_cfg;
 
 /*
  * forward declaration
@@ -339,8 +341,8 @@ void sptlrpc_conf_client_adapt(struct obd_device *obd);
 #define SPTLRPC_MAX_PAYLOAD     (1024)
 
 struct vfs_cred {
-	uint32_t	vc_uid;
-	uint32_t	vc_gid;
+	u32	vc_uid;
+	u32	vc_gid;
 };
 
 struct ptlrpc_ctx_ops {
@@ -1029,6 +1031,8 @@ int  sptlrpc_target_export_check(struct obd_export *exp,
 
 /* bulk security api */
 void sptlrpc_enc_pool_put_pages(struct ptlrpc_bulk_desc *desc);
+int get_free_pages_in_pool(void);
+int pool_is_at_full_capacity(void);
 
 int sptlrpc_cli_wrap_bulk(struct ptlrpc_request *req,
 			  struct ptlrpc_bulk_desc *desc);

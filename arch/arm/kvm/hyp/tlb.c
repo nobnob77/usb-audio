@@ -19,6 +19,7 @@
  */
 
 #include <asm/kvm_hyp.h>
+#include <asm/kvm_mmu.h>
 
 /**
  * Flush per-VMID TLBs
@@ -53,6 +54,21 @@ void __hyp_text __kvm_tlb_flush_vmid(struct kvm *kvm)
 void __hyp_text __kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 {
 	__kvm_tlb_flush_vmid(kvm);
+}
+
+void __hyp_text __kvm_tlb_flush_local_vmid(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = kern_hyp_va(kern_hyp_va(vcpu)->kvm);
+
+	/* Switch to requested VMID */
+	write_sysreg(kvm->arch.vttbr, VTTBR);
+	isb();
+
+	write_sysreg(0, TLBIALL);
+	dsb(nsh);
+	isb();
+
+	write_sysreg(0, VTTBR);
 }
 
 void __hyp_text __kvm_flush_vm_context(void)

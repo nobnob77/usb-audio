@@ -263,6 +263,7 @@ static int pwm_export_child(struct device *parent, struct pwm_device *pwm)
 	export->pwm = pwm;
 	mutex_init(&export->lock);
 
+	export->child.class = parent->class;
 	export->child.release = pwm_export_release;
 	export->child.parent = parent;
 	export->child.devt = MKDEV(0, 0);
@@ -425,6 +426,8 @@ void pwmchip_sysfs_unexport_children(struct pwm_chip *chip)
 		if (test_bit(PWMF_EXPORTED, &pwm->flags))
 			pwm_unexport_child(parent, pwm);
 	}
+
+	put_device(parent);
 }
 
 static int __init pwm_sysfs_init(void)

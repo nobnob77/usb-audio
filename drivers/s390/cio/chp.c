@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *    Copyright IBM Corp. 1999, 2010
  *    Author(s): Cornelia Huck (cornelia.huck@de.ibm.com)
@@ -143,7 +144,7 @@ static ssize_t chp_measurement_chars_read(struct file *filp,
 				       sizeof(chp->cmg_chars));
 }
 
-static struct bin_attribute chp_measurement_chars_attr = {
+static const struct bin_attribute chp_measurement_chars_attr = {
 	.attr = {
 		.name = "measurement_chars",
 		.mode = S_IRUSR,
@@ -197,7 +198,7 @@ static ssize_t chp_measurement_read(struct file *filp, struct kobject *kobj,
 	return count;
 }
 
-static struct bin_attribute chp_measurement_attr = {
+static const struct bin_attribute chp_measurement_attr = {
 	.attr = {
 		.name = "measurement",
 		.mode = S_IRUSR,
@@ -411,7 +412,7 @@ static void chp_release(struct device *dev)
 
 /**
  * chp_update_desc - update channel-path description
- * @chp - channel-path
+ * @chp: channel-path
  *
  * Update the channel-path description of the specified channel-path
  * including channel measurement related information.
@@ -437,13 +438,14 @@ int chp_update_desc(struct channel_path *chp)
 
 /**
  * chp_new - register a new channel-path
- * @chpid - channel-path ID
+ * @chpid: channel-path ID
  *
  * Create and register data structure representing new channel-path. Return
  * zero on success, non-zero otherwise.
  */
 int chp_new(struct chp_id chpid)
 {
+	struct channel_subsystem *css = css_by_id(chpid.cssid);
 	struct channel_path *chp;
 	int ret;
 
@@ -456,7 +458,7 @@ int chp_new(struct chp_id chpid)
 	/* fill in status, etc. */
 	chp->chpid = chpid;
 	chp->state = 1;
-	chp->dev.parent = &channel_subsystems[chpid.cssid]->device;
+	chp->dev.parent = &css->device;
 	chp->dev.groups = chp_attr_groups;
 	chp->dev.release = chp_release;
 	mutex_init(&chp->lock);
@@ -479,17 +481,17 @@ int chp_new(struct chp_id chpid)
 		put_device(&chp->dev);
 		goto out;
 	}
-	mutex_lock(&channel_subsystems[chpid.cssid]->mutex);
-	if (channel_subsystems[chpid.cssid]->cm_enabled) {
+	mutex_lock(&css->mutex);
+	if (css->cm_enabled) {
 		ret = chp_add_cmg_attr(chp);
 		if (ret) {
 			device_unregister(&chp->dev);
-			mutex_unlock(&channel_subsystems[chpid.cssid]->mutex);
+			mutex_unlock(&css->mutex);
 			goto out;
 		}
 	}
-	channel_subsystems[chpid.cssid]->chps[chpid.id] = chp;
-	mutex_unlock(&channel_subsystems[chpid.cssid]->mutex);
+	css->chps[chpid.id] = chp;
+	mutex_unlock(&css->mutex);
 	goto out;
 out_free:
 	kfree(chp);
@@ -558,6 +560,7 @@ static void chp_process_crw(struct crw *crw0, struct crw *crw1,
 	chpid.id = crw0->rsid;
 	switch (crw0->erc) {
 	case CRW_ERC_IPARM: /* Path has come. */
+	case CRW_ERC_INIT:
 		if (!chp_is_registered(chpid))
 			chp_new(chpid);
 		chsc_chp_online(chpid);
@@ -727,8 +730,8 @@ static void cfg_func(struct work_struct *work)
 
 /**
  * chp_cfg_schedule - schedule chpid configuration request
- * @chpid - channel-path ID
- * @configure - Non-zero for configure, zero for deconfigure
+ * @chpid: channel-path ID
+ * @configure: Non-zero for configure, zero for deconfigure
  *
  * Schedule a channel-path configuration/deconfiguration request.
  */
@@ -744,7 +747,7 @@ void chp_cfg_schedule(struct chp_id chpid, int configure)
 
 /**
  * chp_cfg_cancel_deconfigure - cancel chpid deconfiguration request
- * @chpid - channel-path ID
+ * @chpid: channel-path ID
  *
  * Cancel an active channel-path deconfiguration request if it has not yet
  * been performed.

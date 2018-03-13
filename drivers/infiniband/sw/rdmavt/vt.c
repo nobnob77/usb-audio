@@ -47,6 +47,7 @@
 
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/dma-mapping.h>
 #include "vt.h"
 #include "trace.h"
 
@@ -165,7 +166,7 @@ static int rvt_query_port(struct ib_device *ibdev, u8 port_num,
 		return -EINVAL;
 
 	rvp = rdi->ports[port_index];
-	memset(props, 0, sizeof(*props));
+	/* props being zeroed by the caller, avoid zeroing it here */
 	props->sm_lid = rvp->sm_lid;
 	props->sm_sl = rvp->sm_sl;
 	props->port_cap_flags = rvp->port_cap_flags;
@@ -201,8 +202,13 @@ static int rvt_modify_port(struct ib_device *ibdev, u8 port_num,
 		return -EINVAL;
 
 	rvp = rdi->ports[port_index];
-	rvp->port_cap_flags |= props->set_port_cap_mask;
-	rvp->port_cap_flags &= ~props->clr_port_cap_mask;
+	if (port_modify_mask & IB_PORT_OPA_MASK_CHG) {
+		rvp->port_cap3_flags |= props->set_port_cap_mask;
+		rvp->port_cap3_flags &= ~props->clr_port_cap_mask;
+	} else {
+		rvp->port_cap_flags |= props->set_port_cap_mask;
+		rvp->port_cap_flags &= ~props->clr_port_cap_mask;
+	}
 
 	if (props->set_port_cap_mask || props->clr_port_cap_mask)
 		rdi->driver_f.cap_mask_chg(rdi, port_num);
@@ -218,7 +224,8 @@ static int rvt_modify_port(struct ib_device *ibdev, u8 port_num,
  * rvt_query_pkey - Return a pkey from the table at a given index
  * @ibdev: Verbs IB dev
  * @port_num: Port number, 1 based from ib core
- * @intex: Index into pkey table
+ * @index: Index into pkey table
+ * @pkey: returned pkey from the port pkey table
  *
  * Return: 0 on failure pkey otherwise
  */
@@ -249,7 +256,7 @@ static int rvt_query_pkey(struct ib_device *ibdev, u8 port_num, u16 index,
  * rvt_query_gid - Return a gid from the table
  * @ibdev: Verbs IB dev
  * @port_num: Port number, 1 based from ib core
- * @index: = Index in table
+ * @guid_index: Index in table
  * @gid: Gid to return
  *
  * Return: 0 on success
@@ -291,8 +298,8 @@ static inline struct rvt_ucontext *to_iucontext(struct ib_ucontext
 
 /**
  * rvt_alloc_ucontext - Allocate a user context
- * @ibdev: Vers IB dev
- * @data: User data allocated
+ * @ibdev: Verbs IB dev
+ * @udata: User data allocated
  */
 static struct ib_ucontext *rvt_alloc_ucontext(struct ib_device *ibdev,
 					      struct ib_udata *udata)
@@ -326,13 +333,14 @@ static int rvt_get_port_immutable(struct ib_device *ibdev, u8 port_num,
 	if (port_index < 0)
 		return -EINVAL;
 
-	err = rvt_query_port(ibdev, port_num, &attr);
+	immutable->core_cap_flags = rdi->dparms.core_cap_flags;
+
+	err = ib_query_port(ibdev, port_num, &attr);
 	if (err)
 		return err;
 
 	immutable->pkey_tbl_len = attr.pkey_tbl_len;
 	immutable->gid_tbl_len = attr.gid_tbl_len;
-	immutable->core_cap_flags = rdi->dparms.core_cap_flags;
 	immutable->max_mad_size = rdi->dparms.max_mad_size;
 
 	return 0;
@@ -406,7 +414,6 @@ static noinline int check_support(struct rvt_dev_info *rdi, int verb)
 		 * required for rdmavt to function.
 		 */
 		if ((!rdi->driver_f.port_callback) ||
-		    (!rdi->driver_f.get_card_name) ||
 		    (!rdi->driver_f.get_pci_dev))
 			return -EINVAL;
 		break;
@@ -777,8 +784,7 @@ int rvt_register_device(struct rvt_dev_info *rdi)
 	}
 
 	/* DMA Operations */
-	rdi->ibdev.dma_ops =
-		rdi->ibdev.dma_ops ? : &rvt_default_dma_mapping_ops;
+	rdi->ibdev.dev.dma_ops = rdi->ibdev.dev.dma_ops ? : &dma_virt_ops;
 
 	/* Protection Domain */
 	spin_lock_init(&rdi->n_pds_lock);

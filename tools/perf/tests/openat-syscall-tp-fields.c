@@ -1,10 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/err.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include "perf.h"
 #include "evlist.h"
 #include "evsel.h"
 #include "thread_map.h"
 #include "tests.h"
 #include "debug.h"
+#include <errno.h>
 
 #ifndef O_DIRECTORY
 #define O_DIRECTORY    00200000
@@ -13,7 +18,7 @@
 #define AT_FDCWD       -100
 #endif
 
-int test__syscall_openat_tp_fields(int subtest __maybe_unused)
+int test__syscall_openat_tp_fields(struct test *test __maybe_unused, int subtest __maybe_unused)
 {
 	struct record_opts opts = {
 		.target = {
@@ -62,7 +67,7 @@ int test__syscall_openat_tp_fields(int subtest __maybe_unused)
 		goto out_delete_evlist;
 	}
 
-	err = perf_evlist__mmap(evlist, UINT_MAX, false);
+	err = perf_evlist__mmap(evlist, UINT_MAX);
 	if (err < 0) {
 		pr_debug("perf_evlist__mmap: %s\n",
 			 str_error_r(errno, sbuf, sizeof(sbuf)));

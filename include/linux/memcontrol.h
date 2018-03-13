@@ -26,7 +26,8 @@
 #include <linux/page_counter.h>
 #include <linux/vmpressure.h>
 #include <linux/eventfd.h>
-#include <linux/mmzone.h>
+#include <linux/mm.h>
+#include <linux/vmstat.h>
 #include <linux/writeback.h>
 #include <linux/page-flags.h>
 
@@ -35,28 +36,25 @@ struct page;
 struct mm_struct;
 struct kmem_cache;
 
-/*
- * The corresponding mem_cgroup_stat_names is defined in mm/memcontrol.c,
- * These two lists should keep in accord with each other.
- */
-enum mem_cgroup_stat_index {
-	/*
-	 * For MEM_CONTAINER_TYPE_ALL, usage = pagecache + rss.
-	 */
-	MEM_CGROUP_STAT_CACHE,		/* # of pages charged as cache */
-	MEM_CGROUP_STAT_RSS,		/* # of pages charged as anon rss */
-	MEM_CGROUP_STAT_RSS_HUGE,	/* # of pages charged as anon huge */
-	MEM_CGROUP_STAT_FILE_MAPPED,	/* # of pages charged as file rss */
-	MEM_CGROUP_STAT_DIRTY,          /* # of dirty pages in page cache */
-	MEM_CGROUP_STAT_WRITEBACK,	/* # of pages under writeback */
-	MEM_CGROUP_STAT_SWAP,		/* # of pages, swapped out */
-	MEM_CGROUP_STAT_NSTATS,
-	/* default hierarchy stats */
-	MEMCG_KERNEL_STACK_KB = MEM_CGROUP_STAT_NSTATS,
-	MEMCG_SLAB_RECLAIMABLE,
-	MEMCG_SLAB_UNRECLAIMABLE,
+/* Cgroup-specific page state, on top of universal node page state */
+enum memcg_stat_item {
+	MEMCG_CACHE = NR_VM_NODE_STAT_ITEMS,
+	MEMCG_RSS,
+	MEMCG_RSS_HUGE,
+	MEMCG_SWAP,
 	MEMCG_SOCK,
+	/* XXX: why are these zone and not node counters? */
+	MEMCG_KERNEL_STACK_KB,
 	MEMCG_NR_STAT,
+};
+
+/* Cgroup-specific events, on top of universal VM events */
+enum memcg_event_item {
+	MEMCG_LOW = NR_VM_EVENT_ITEMS,
+	MEMCG_HIGH,
+	MEMCG_MAX,
+	MEMCG_OOM,
+	MEMCG_NR_EVENTS,
 };
 
 struct mem_cgroup_reclaim_cookie {
@@ -65,18 +63,14 @@ struct mem_cgroup_reclaim_cookie {
 	unsigned int generation;
 };
 
-enum mem_cgroup_events_index {
-	MEM_CGROUP_EVENTS_PGPGIN,	/* # of pages paged in */
-	MEM_CGROUP_EVENTS_PGPGOUT,	/* # of pages paged out */
-	MEM_CGROUP_EVENTS_PGFAULT,	/* # of page-faults */
-	MEM_CGROUP_EVENTS_PGMAJFAULT,	/* # of major page-faults */
-	MEM_CGROUP_EVENTS_NSTATS,
-	/* default hierarchy events */
-	MEMCG_LOW = MEM_CGROUP_EVENTS_NSTATS,
-	MEMCG_HIGH,
-	MEMCG_MAX,
-	MEMCG_OOM,
-	MEMCG_NR_EVENTS,
+#ifdef CONFIG_MEMCG
+
+#define MEM_CGROUP_ID_SHIFT	16
+#define MEM_CGROUP_ID_MAX	USHRT_MAX
+
+struct mem_cgroup_id {
+	int id;
+	atomic_t ref;
 };
 
 /*
@@ -92,16 +86,6 @@ enum mem_cgroup_events_target {
 	MEM_CGROUP_NTARGETS,
 };
 
-#ifdef CONFIG_MEMCG
-
-#define MEM_CGROUP_ID_SHIFT	16
-#define MEM_CGROUP_ID_MAX	USHRT_MAX
-
-struct mem_cgroup_id {
-	int id;
-	atomic_t ref;
-};
-
 struct mem_cgroup_stat_cpu {
 	long count[MEMCG_NR_STAT];
 	unsigned long events[MEMCG_NR_EVENTS];
@@ -115,12 +99,20 @@ struct mem_cgroup_reclaim_iter {
 	unsigned int generation;
 };
 
+struct lruvec_stat {
+	long count[NR_VM_NODE_STAT_ITEMS];
+};
+
 /*
  * per-zone information in memory controller.
  */
 struct mem_cgroup_per_node {
 	struct lruvec		lruvec;
-	unsigned long		lru_size[NR_LRU_LISTS];
+
+	struct lruvec_stat __percpu *lruvec_stat_cpu;
+	atomic_long_t		lruvec_stat[NR_VM_NODE_STAT_ITEMS];
+
+	unsigned long		lru_zone_size[MAX_NR_ZONES][NR_LRU_LISTS];
 
 	struct mem_cgroup_reclaim_iter	iter[DEF_PRIORITY + 1];
 
@@ -238,10 +230,10 @@ struct mem_cgroup {
 	spinlock_t		move_lock;
 	struct task_struct	*move_lock_task;
 	unsigned long		move_lock_flags;
-	/*
-	 * percpu counter.
-	 */
-	struct mem_cgroup_stat_cpu __percpu *stat;
+
+	struct mem_cgroup_stat_cpu __percpu *stat_cpu;
+	atomic_long_t		stat[MEMCG_NR_STAT];
+	atomic_long_t		events[MEMCG_NR_EVENTS];
 
 	unsigned long		socket_pressure;
 
@@ -253,6 +245,7 @@ struct mem_cgroup {
         /* Index in the kmem_cache->memcg_params.memcg_caches array */
 	int kmemcg_id;
 	enum memcg_kmem_state kmem_state;
+	struct list_head kmem_caches;
 #endif
 
 	int last_scanned_node;
@@ -275,25 +268,17 @@ struct mem_cgroup {
 	/* WARNING: nodeinfo must be the last member here */
 };
 
+/*
+ * size of first charge trial. "32" comes from vmscan.c's magic value.
+ * TODO: maybe necessary to use big numbers in big irons.
+ */
+#define MEMCG_CHARGE_BATCH 32U
+
 extern struct mem_cgroup *root_mem_cgroup;
 
 static inline bool mem_cgroup_disabled(void)
 {
 	return !cgroup_subsys_enabled(memory_cgrp_subsys);
-}
-
-/**
- * mem_cgroup_events - count memory events against a cgroup
- * @memcg: the memory cgroup
- * @idx: the event index
- * @nr: the number of events to account for
- */
-static inline void mem_cgroup_events(struct mem_cgroup *memcg,
-		       enum mem_cgroup_events_index idx,
-		       unsigned int nr)
-{
-	this_cpu_add(memcg->stat->events[idx], nr);
-	cgroup_file_notify(&memcg->events_file);
 }
 
 bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg);
@@ -378,6 +363,17 @@ static inline unsigned short mem_cgroup_id(struct mem_cgroup *memcg)
 }
 struct mem_cgroup *mem_cgroup_from_id(unsigned short id);
 
+static inline struct mem_cgroup *lruvec_memcg(struct lruvec *lruvec)
+{
+	struct mem_cgroup_per_node *mz;
+
+	if (mem_cgroup_disabled())
+		return NULL;
+
+	mz = container_of(lruvec, struct mem_cgroup_per_node, lruvec);
+	return mz->memcg;
+}
+
 /**
  * parent_mem_cgroup - find the accounting parent of a memcg
  * @memcg: memcg whose parent to find
@@ -432,7 +428,7 @@ static inline bool mem_cgroup_online(struct mem_cgroup *memcg)
 int mem_cgroup_select_victim_node(struct mem_cgroup *memcg);
 
 void mem_cgroup_update_lru_size(struct lruvec *lruvec, enum lru_list lru,
-		int nr_pages);
+		int zid, int nr_pages);
 
 unsigned long mem_cgroup_node_nr_lru_pages(struct mem_cgroup *memcg,
 					   int nid, unsigned int lru_mask);
@@ -441,9 +437,23 @@ static inline
 unsigned long mem_cgroup_get_lru_size(struct lruvec *lruvec, enum lru_list lru)
 {
 	struct mem_cgroup_per_node *mz;
+	unsigned long nr_pages = 0;
+	int zid;
 
 	mz = container_of(lruvec, struct mem_cgroup_per_node, lruvec);
-	return mz->lru_size[lru];
+	for (zid = 0; zid < MAX_NR_ZONES; zid++)
+		nr_pages += mz->lru_zone_size[zid][lru];
+	return nr_pages;
+}
+
+static inline
+unsigned long mem_cgroup_get_zone_lru_size(struct lruvec *lruvec,
+		enum lru_list lru, int zone_idx)
+{
+	struct mem_cgroup_per_node *mz;
+
+	mz = container_of(lruvec, struct mem_cgroup_per_node, lruvec);
+	return mz->lru_zone_size[zone_idx][lru];
 }
 
 void mem_cgroup_handle_over_high(void);
@@ -476,11 +486,52 @@ bool mem_cgroup_oom_synchronize(bool wait);
 extern int do_swap_account;
 #endif
 
-void lock_page_memcg(struct page *page);
+struct mem_cgroup *lock_page_memcg(struct page *page);
+void __unlock_page_memcg(struct mem_cgroup *memcg);
 void unlock_page_memcg(struct page *page);
 
+/* idx can be of type enum memcg_stat_item or node_stat_item */
+static inline unsigned long memcg_page_state(struct mem_cgroup *memcg,
+					     int idx)
+{
+	long x = atomic_long_read(&memcg->stat[idx]);
+#ifdef CONFIG_SMP
+	if (x < 0)
+		x = 0;
+#endif
+	return x;
+}
+
+/* idx can be of type enum memcg_stat_item or node_stat_item */
+static inline void __mod_memcg_state(struct mem_cgroup *memcg,
+				     int idx, int val)
+{
+	long x;
+
+	if (mem_cgroup_disabled())
+		return;
+
+	x = val + __this_cpu_read(memcg->stat_cpu->count[idx]);
+	if (unlikely(abs(x) > MEMCG_CHARGE_BATCH)) {
+		atomic_long_add(x, &memcg->stat[idx]);
+		x = 0;
+	}
+	__this_cpu_write(memcg->stat_cpu->count[idx], x);
+}
+
+/* idx can be of type enum memcg_stat_item or node_stat_item */
+static inline void mod_memcg_state(struct mem_cgroup *memcg,
+				   int idx, int val)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	__mod_memcg_state(memcg, idx, val);
+	local_irq_restore(flags);
+}
+
 /**
- * mem_cgroup_update_page_stat - update page state statistics
+ * mod_memcg_page_state - update page state statistics
  * @page: the page
  * @idx: page state item to account
  * @val: number of pages (positive or negative)
@@ -491,36 +542,146 @@ void unlock_page_memcg(struct page *page);
  *
  *   lock_page(page) or lock_page_memcg(page)
  *   if (TestClearPageState(page))
- *     mem_cgroup_update_page_stat(page, state, -1);
+ *     mod_memcg_page_state(page, state, -1);
  *   unlock_page(page) or unlock_page_memcg(page)
+ *
+ * Kernel pages are an exception to this, since they'll never move.
  */
-static inline void mem_cgroup_update_page_stat(struct page *page,
-				 enum mem_cgroup_stat_index idx, int val)
+static inline void __mod_memcg_page_state(struct page *page,
+					  int idx, int val)
 {
-	VM_BUG_ON(!(rcu_read_lock_held() || PageLocked(page)));
-
 	if (page->mem_cgroup)
-		this_cpu_add(page->mem_cgroup->stat->count[idx], val);
+		__mod_memcg_state(page->mem_cgroup, idx, val);
 }
 
-static inline void mem_cgroup_inc_page_stat(struct page *page,
-					    enum mem_cgroup_stat_index idx)
+static inline void mod_memcg_page_state(struct page *page,
+					int idx, int val)
 {
-	mem_cgroup_update_page_stat(page, idx, 1);
+	if (page->mem_cgroup)
+		mod_memcg_state(page->mem_cgroup, idx, val);
 }
 
-static inline void mem_cgroup_dec_page_stat(struct page *page,
-					    enum mem_cgroup_stat_index idx)
+static inline unsigned long lruvec_page_state(struct lruvec *lruvec,
+					      enum node_stat_item idx)
 {
-	mem_cgroup_update_page_stat(page, idx, -1);
+	struct mem_cgroup_per_node *pn;
+	long x;
+
+	if (mem_cgroup_disabled())
+		return node_page_state(lruvec_pgdat(lruvec), idx);
+
+	pn = container_of(lruvec, struct mem_cgroup_per_node, lruvec);
+	x = atomic_long_read(&pn->lruvec_stat[idx]);
+#ifdef CONFIG_SMP
+	if (x < 0)
+		x = 0;
+#endif
+	return x;
+}
+
+static inline void __mod_lruvec_state(struct lruvec *lruvec,
+				      enum node_stat_item idx, int val)
+{
+	struct mem_cgroup_per_node *pn;
+	long x;
+
+	/* Update node */
+	__mod_node_page_state(lruvec_pgdat(lruvec), idx, val);
+
+	if (mem_cgroup_disabled())
+		return;
+
+	pn = container_of(lruvec, struct mem_cgroup_per_node, lruvec);
+
+	/* Update memcg */
+	__mod_memcg_state(pn->memcg, idx, val);
+
+	/* Update lruvec */
+	x = val + __this_cpu_read(pn->lruvec_stat_cpu->count[idx]);
+	if (unlikely(abs(x) > MEMCG_CHARGE_BATCH)) {
+		atomic_long_add(x, &pn->lruvec_stat[idx]);
+		x = 0;
+	}
+	__this_cpu_write(pn->lruvec_stat_cpu->count[idx], x);
+}
+
+static inline void mod_lruvec_state(struct lruvec *lruvec,
+				    enum node_stat_item idx, int val)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	__mod_lruvec_state(lruvec, idx, val);
+	local_irq_restore(flags);
+}
+
+static inline void __mod_lruvec_page_state(struct page *page,
+					   enum node_stat_item idx, int val)
+{
+	pg_data_t *pgdat = page_pgdat(page);
+	struct lruvec *lruvec;
+
+	/* Untracked pages have no memcg, no lruvec. Update only the node */
+	if (!page->mem_cgroup) {
+		__mod_node_page_state(pgdat, idx, val);
+		return;
+	}
+
+	lruvec = mem_cgroup_lruvec(pgdat, page->mem_cgroup);
+	__mod_lruvec_state(lruvec, idx, val);
+}
+
+static inline void mod_lruvec_page_state(struct page *page,
+					 enum node_stat_item idx, int val)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	__mod_lruvec_page_state(page, idx, val);
+	local_irq_restore(flags);
 }
 
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 						gfp_t gfp_mask,
 						unsigned long *total_scanned);
 
-static inline void mem_cgroup_count_vm_event(struct mm_struct *mm,
-					     enum vm_event_item idx)
+/* idx can be of type enum memcg_event_item or vm_event_item */
+static inline void __count_memcg_events(struct mem_cgroup *memcg,
+					int idx, unsigned long count)
+{
+	unsigned long x;
+
+	if (mem_cgroup_disabled())
+		return;
+
+	x = count + __this_cpu_read(memcg->stat_cpu->events[idx]);
+	if (unlikely(x > MEMCG_CHARGE_BATCH)) {
+		atomic_long_add(x, &memcg->events[idx]);
+		x = 0;
+	}
+	__this_cpu_write(memcg->stat_cpu->events[idx], x);
+}
+
+static inline void count_memcg_events(struct mem_cgroup *memcg,
+				      int idx, unsigned long count)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	__count_memcg_events(memcg, idx, count);
+	local_irq_restore(flags);
+}
+
+/* idx can be of type enum memcg_event_item or vm_event_item */
+static inline void count_memcg_page_event(struct page *page,
+					  int idx)
+{
+	if (page->mem_cgroup)
+		count_memcg_events(page->mem_cgroup, idx, 1);
+}
+
+static inline void count_memcg_event_mm(struct mm_struct *mm,
+					enum vm_event_item idx)
 {
 	struct mem_cgroup *memcg;
 
@@ -529,22 +690,21 @@ static inline void mem_cgroup_count_vm_event(struct mm_struct *mm,
 
 	rcu_read_lock();
 	memcg = mem_cgroup_from_task(rcu_dereference(mm->owner));
-	if (unlikely(!memcg))
-		goto out;
-
-	switch (idx) {
-	case PGFAULT:
-		this_cpu_inc(memcg->stat->events[MEM_CGROUP_EVENTS_PGFAULT]);
-		break;
-	case PGMAJFAULT:
-		this_cpu_inc(memcg->stat->events[MEM_CGROUP_EVENTS_PGMAJFAULT]);
-		break;
-	default:
-		BUG();
+	if (likely(memcg)) {
+		count_memcg_events(memcg, idx, 1);
+		if (idx == OOM_KILL)
+			cgroup_file_notify(&memcg->events_file);
 	}
-out:
 	rcu_read_unlock();
 }
+
+static inline void mem_cgroup_event(struct mem_cgroup *memcg,
+				    enum memcg_event_item event)
+{
+	count_memcg_events(memcg, event, 1);
+	cgroup_file_notify(&memcg->events_file);
+}
+
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 void mem_cgroup_split_huge_fixup(struct page *head);
 #endif
@@ -561,9 +721,8 @@ static inline bool mem_cgroup_disabled(void)
 	return true;
 }
 
-static inline void mem_cgroup_events(struct mem_cgroup *memcg,
-				     enum mem_cgroup_events_index idx,
-				     unsigned int nr)
+static inline void mem_cgroup_event(struct mem_cgroup *memcg,
+				    enum memcg_event_item event)
 {
 }
 
@@ -661,6 +820,11 @@ static inline struct mem_cgroup *mem_cgroup_from_id(unsigned short id)
 	return NULL;
 }
 
+static inline struct mem_cgroup *lruvec_memcg(struct lruvec *lruvec)
+{
+	return NULL;
+}
+
 static inline bool mem_cgroup_online(struct mem_cgroup *memcg)
 {
 	return true;
@@ -668,6 +832,12 @@ static inline bool mem_cgroup_online(struct mem_cgroup *memcg)
 
 static inline unsigned long
 mem_cgroup_get_lru_size(struct lruvec *lruvec, enum lru_list lru)
+{
+	return 0;
+}
+static inline
+unsigned long mem_cgroup_get_zone_lru_size(struct lruvec *lruvec,
+		enum lru_list lru, int zone_idx)
 {
 	return 0;
 }
@@ -689,7 +859,12 @@ mem_cgroup_print_oom_info(struct mem_cgroup *memcg, struct task_struct *p)
 {
 }
 
-static inline void lock_page_memcg(struct page *page)
+static inline struct mem_cgroup *lock_page_memcg(struct page *page)
+{
+	return NULL;
+}
+
+static inline void __unlock_page_memcg(struct mem_cgroup *memcg)
 {
 }
 
@@ -719,14 +894,64 @@ static inline bool mem_cgroup_oom_synchronize(bool wait)
 	return false;
 }
 
-static inline void mem_cgroup_inc_page_stat(struct page *page,
-					    enum mem_cgroup_stat_index idx)
+static inline unsigned long memcg_page_state(struct mem_cgroup *memcg,
+					     int idx)
+{
+	return 0;
+}
+
+static inline void __mod_memcg_state(struct mem_cgroup *memcg,
+				     int idx,
+				     int nr)
 {
 }
 
-static inline void mem_cgroup_dec_page_stat(struct page *page,
-					    enum mem_cgroup_stat_index idx)
+static inline void mod_memcg_state(struct mem_cgroup *memcg,
+				   int idx,
+				   int nr)
 {
+}
+
+static inline void __mod_memcg_page_state(struct page *page,
+					  int idx,
+					  int nr)
+{
+}
+
+static inline void mod_memcg_page_state(struct page *page,
+					int idx,
+					int nr)
+{
+}
+
+static inline unsigned long lruvec_page_state(struct lruvec *lruvec,
+					      enum node_stat_item idx)
+{
+	return node_page_state(lruvec_pgdat(lruvec), idx);
+}
+
+static inline void __mod_lruvec_state(struct lruvec *lruvec,
+				      enum node_stat_item idx, int val)
+{
+	__mod_node_page_state(lruvec_pgdat(lruvec), idx, val);
+}
+
+static inline void mod_lruvec_state(struct lruvec *lruvec,
+				    enum node_stat_item idx, int val)
+{
+	mod_node_page_state(lruvec_pgdat(lruvec), idx, val);
+}
+
+static inline void __mod_lruvec_page_state(struct page *page,
+					   enum node_stat_item idx, int val)
+{
+	__mod_node_page_state(page_pgdat(page), idx, val);
+}
+
+static inline void mod_lruvec_page_state(struct page *page,
+					 enum node_stat_item idx, int val)
+{
+	mod_node_page_state(page_pgdat(page), idx, val);
 }
 
 static inline
@@ -741,11 +966,126 @@ static inline void mem_cgroup_split_huge_fixup(struct page *head)
 {
 }
 
+static inline void count_memcg_events(struct mem_cgroup *memcg,
+				      enum vm_event_item idx,
+				      unsigned long count)
+{
+}
+
+static inline void count_memcg_page_event(struct page *page,
+					  int idx)
+{
+}
+
 static inline
-void mem_cgroup_count_vm_event(struct mm_struct *mm, enum vm_event_item idx)
+void count_memcg_event_mm(struct mm_struct *mm, enum vm_event_item idx)
 {
 }
 #endif /* CONFIG_MEMCG */
+
+/* idx can be of type enum memcg_stat_item or node_stat_item */
+static inline void __inc_memcg_state(struct mem_cgroup *memcg,
+				     int idx)
+{
+	__mod_memcg_state(memcg, idx, 1);
+}
+
+/* idx can be of type enum memcg_stat_item or node_stat_item */
+static inline void __dec_memcg_state(struct mem_cgroup *memcg,
+				     int idx)
+{
+	__mod_memcg_state(memcg, idx, -1);
+}
+
+/* idx can be of type enum memcg_stat_item or node_stat_item */
+static inline void __inc_memcg_page_state(struct page *page,
+					  int idx)
+{
+	__mod_memcg_page_state(page, idx, 1);
+}
+
+/* idx can be of type enum memcg_stat_item or node_stat_item */
+static inline void __dec_memcg_page_state(struct page *page,
+					  int idx)
+{
+	__mod_memcg_page_state(page, idx, -1);
+}
+
+static inline void __inc_lruvec_state(struct lruvec *lruvec,
+				      enum node_stat_item idx)
+{
+	__mod_lruvec_state(lruvec, idx, 1);
+}
+
+static inline void __dec_lruvec_state(struct lruvec *lruvec,
+				      enum node_stat_item idx)
+{
+	__mod_lruvec_state(lruvec, idx, -1);
+}
+
+static inline void __inc_lruvec_page_state(struct page *page,
+					   enum node_stat_item idx)
+{
+	__mod_lruvec_page_state(page, idx, 1);
+}
+
+static inline void __dec_lruvec_page_state(struct page *page,
+					   enum node_stat_item idx)
+{
+	__mod_lruvec_page_state(page, idx, -1);
+}
+
+/* idx can be of type enum memcg_stat_item or node_stat_item */
+static inline void inc_memcg_state(struct mem_cgroup *memcg,
+				   int idx)
+{
+	mod_memcg_state(memcg, idx, 1);
+}
+
+/* idx can be of type enum memcg_stat_item or node_stat_item */
+static inline void dec_memcg_state(struct mem_cgroup *memcg,
+				   int idx)
+{
+	mod_memcg_state(memcg, idx, -1);
+}
+
+/* idx can be of type enum memcg_stat_item or node_stat_item */
+static inline void inc_memcg_page_state(struct page *page,
+					int idx)
+{
+	mod_memcg_page_state(page, idx, 1);
+}
+
+/* idx can be of type enum memcg_stat_item or node_stat_item */
+static inline void dec_memcg_page_state(struct page *page,
+					int idx)
+{
+	mod_memcg_page_state(page, idx, -1);
+}
+
+static inline void inc_lruvec_state(struct lruvec *lruvec,
+				    enum node_stat_item idx)
+{
+	mod_lruvec_state(lruvec, idx, 1);
+}
+
+static inline void dec_lruvec_state(struct lruvec *lruvec,
+				    enum node_stat_item idx)
+{
+	mod_lruvec_state(lruvec, idx, -1);
+}
+
+static inline void inc_lruvec_page_state(struct page *page,
+					 enum node_stat_item idx)
+{
+	mod_lruvec_page_state(page, idx, 1);
+}
+
+static inline void dec_lruvec_page_state(struct page *page,
+					 enum node_stat_item idx)
+{
+	mod_lruvec_page_state(page, idx, -1);
+}
 
 #ifdef CONFIG_CGROUP_WRITEBACK
 
@@ -809,6 +1149,7 @@ void memcg_kmem_uncharge(struct page *page, int order);
 
 #if defined(CONFIG_MEMCG) && !defined(CONFIG_SLOB)
 extern struct static_key_false memcg_kmem_enabled_key;
+extern struct workqueue_struct *memcg_kmem_cache_wq;
 
 extern int memcg_nr_cache_ids;
 void memcg_get_cache_ids(void);
@@ -837,19 +1178,6 @@ static inline int memcg_cache_id(struct mem_cgroup *memcg)
 	return memcg ? memcg->kmemcg_id : -1;
 }
 
-/**
- * memcg_kmem_update_page_stat - update kmem page state statistics
- * @page: the page
- * @idx: page state item to account
- * @val: number of pages (positive or negative)
- */
-static inline void memcg_kmem_update_page_stat(struct page *page,
-				enum mem_cgroup_stat_index idx, int val)
-{
-	if (memcg_kmem_enabled() && page->mem_cgroup)
-		this_cpu_add(page->mem_cgroup->stat->count[idx], val);
-}
-
 #else
 #define for_each_memcg_cache_index(_idx)	\
 	for (; NULL; )
@@ -872,10 +1200,6 @@ static inline void memcg_put_cache_ids(void)
 {
 }
 
-static inline void memcg_kmem_update_page_stat(struct page *page,
-				enum mem_cgroup_stat_index idx, int val)
-{
-}
 #endif /* CONFIG_MEMCG && !CONFIG_SLOB */
 
 #endif /* _LINUX_MEMCONTROL_H */

@@ -50,10 +50,11 @@ struct proto 	udplite_prot = {
 	.sendmsg	   = udp_sendmsg,
 	.recvmsg	   = udp_recvmsg,
 	.sendpage	   = udp_sendpage,
-	.backlog_rcv	   = udp_queue_rcv_skb,
 	.hash		   = udp_lib_hash,
 	.unhash		   = udp_lib_unhash,
 	.get_port	   = udp_v4_get_port,
+	.memory_allocated  = &udp_memory_allocated,
+	.sysctl_mem	   = sysctl_udp_mem,
 	.obj_size	   = sizeof(struct udp_sock),
 	.h.udp_table	   = &udplite_table,
 #ifdef CONFIG_COMPAT
@@ -74,7 +75,6 @@ static struct inet_protosw udplite4_protosw = {
 #ifdef CONFIG_PROC_FS
 
 static const struct file_operations udplite_afinfo_seq_fops = {
-	.owner    = THIS_MODULE,
 	.open     = udp_seq_open,
 	.read     = seq_read,
 	.llseek   = seq_lseek,

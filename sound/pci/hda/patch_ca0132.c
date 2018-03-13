@@ -27,6 +27,7 @@
 #include <linux/mutex.h>
 #include <linux/module.h>
 #include <linux/firmware.h>
+#include <linux/kernel.h>
 #include <sound/core.h>
 #include "hda_codec.h"
 #include "hda_local.h"
@@ -857,7 +858,7 @@ static int chipio_write_address(struct hda_codec *codec,
 				  chip_addx >> 16);
 	}
 
-	spec->curr_chip_addx = (res < 0) ? ~0UL : chip_addx;
+	spec->curr_chip_addx = (res < 0) ? ~0U : chip_addx;
 
 	return res;
 }
@@ -882,7 +883,7 @@ static int chipio_write_data(struct hda_codec *codec, unsigned int data)
 	/*If no error encountered, automatically increment the address
 	as per chip behaviour*/
 	spec->curr_chip_addx = (res != -EIO) ?
-					(spec->curr_chip_addx + 4) : ~0UL;
+					(spec->curr_chip_addx + 4) : ~0U;
 	return res;
 }
 
@@ -933,7 +934,7 @@ static int chipio_read_data(struct hda_codec *codec, unsigned int *data)
 	/*If no error encountered, automatically increment the address
 	as per chip behaviour*/
 	spec->curr_chip_addx = (res != -EIO) ?
-					(spec->curr_chip_addx + 4) : ~0UL;
+					(spec->curr_chip_addx + 4) : ~0U;
 	return res;
 }
 
@@ -1168,7 +1169,7 @@ static int dspio_write_multiple(struct hda_codec *codec,
 	int status = 0;
 	unsigned int count;
 
-	if ((buffer == NULL))
+	if (buffer == NULL)
 		return -EINVAL;
 
 	count = 0;
@@ -1210,7 +1211,7 @@ static int dspio_read_multiple(struct hda_codec *codec, unsigned int *buffer,
 	unsigned int skip_count;
 	unsigned int dummy;
 
-	if ((buffer == NULL))
+	if (buffer == NULL)
 		return -1;
 
 	count = 0;
@@ -1481,6 +1482,9 @@ static int dspio_scp(struct hda_codec *codec,
 			return -EINVAL;
 		} else if (ret_size != reply_data_size) {
 			codec_dbg(codec, "RetLen and HdrLen .NE.\n");
+			return -EINVAL;
+		} else if (!reply) {
+			codec_dbg(codec, "NULL reply\n");
 			return -EINVAL;
 		} else {
 			*reply_len = ret_size*sizeof(unsigned int);
@@ -2863,7 +2867,7 @@ static unsigned int ca0132_capture_pcm_delay(struct hda_pcm_stream *info,
 #define CA0132_CODEC_MUTE(xname, nid, dir) \
 	CA0132_CODEC_MUTE_MONO(xname, nid, 3, dir)
 
-/* The followings are for tuning of products */
+/* The following are for tuning of products */
 #ifdef ENABLE_TUNING_CONTROLS
 
 static unsigned int voice_focus_vals_lookup[] = {
@@ -3602,8 +3606,7 @@ static int ca0132_vnode_switch_set(struct snd_kcontrol *kcontrol,
 static int ca0132_voicefx_info(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_info *uinfo)
 {
-	unsigned int items = sizeof(ca0132_voicefx_presets)
-				/ sizeof(struct ct_voicefx_preset);
+	unsigned int items = ARRAY_SIZE(ca0132_voicefx_presets);
 
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
 	uinfo->count = 1;
@@ -3632,10 +3635,8 @@ static int ca0132_voicefx_put(struct snd_kcontrol *kcontrol,
 	struct ca0132_spec *spec = codec->spec;
 	int i, err = 0;
 	int sel = ucontrol->value.enumerated.item[0];
-	unsigned int items = sizeof(ca0132_voicefx_presets)
-				/ sizeof(struct ct_voicefx_preset);
 
-	if (sel >= items)
+	if (sel >= ARRAY_SIZE(ca0132_voicefx_presets))
 		return 0;
 
 	codec_dbg(codec, "ca0132_voicefx_put: sel=%d, preset=%s\n",
@@ -4771,13 +4772,17 @@ static int patch_ca0132(struct hda_codec *codec)
 
 	err = ca0132_prepare_verbs(codec);
 	if (err < 0)
-		return err;
+		goto error;
 
 	err = snd_hda_parse_pin_def_config(codec, &spec->autocfg, NULL);
 	if (err < 0)
-		return err;
+		goto error;
 
 	return 0;
+
+ error:
+	ca0132_free(codec);
+	return err;
 }
 
 /*

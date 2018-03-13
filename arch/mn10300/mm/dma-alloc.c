@@ -37,9 +37,6 @@ static void *mn10300_dma_alloc(struct device *dev, size_t size,
 		goto done;
 	}
 
-	/* ignore region specifiers */
-	gfp &= ~(__GFP_DMA | __GFP_HIGHMEM);
-
 	if (dev == NULL || dev->coherent_dma_mask < 0xffffffff)
 		gfp |= GFP_DMA;
 
@@ -121,7 +118,7 @@ static int mn10300_dma_supported(struct device *dev, u64 mask)
 	return 1;
 }
 
-struct dma_map_ops mn10300_dma_ops = {
+const struct dma_map_ops mn10300_dma_ops = {
 	.alloc			= mn10300_dma_alloc,
 	.free			= mn10300_dma_free,
 	.map_page		= mn10300_dma_map_page,

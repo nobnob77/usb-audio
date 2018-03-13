@@ -1,13 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Handles the Intel 27x USB Device Controller (UDC)
  *
  * Inspired by original driver by Frank Becker, David Brownell, and others.
  * Copyright (C) 2008 Robert Jarzmik
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -983,8 +979,6 @@ static int write_fifo(struct pxa_ep *ep, struct pxa27x_request *req)
 
 	max = ep->fifo_size;
 	do {
-		is_short = 0;
-
 		udccsr = udc_ep_readl(ep, UDCCSR);
 		if (udccsr & UDCCSR_PC) {
 			ep_vdbg(ep, "Clearing Transmit Complete, udccsr=%x\n",
@@ -1138,7 +1132,6 @@ static int pxa_ep_queue(struct usb_ep *_ep, struct usb_request *_req,
 	if (unlikely(!_ep))
 		return -EINVAL;
 
-	dev = udc_usb_ep->dev;
 	ep = udc_usb_ep->pxa_ep;
 	if (unlikely(!ep))
 		return -EINVAL;
@@ -1473,7 +1466,7 @@ static int pxa_ep_disable(struct usb_ep *_ep)
 	return 0;
 }
 
-static struct usb_ep_ops pxa_ep_ops = {
+static const struct usb_ep_ops pxa_ep_ops = {
 	.enable		= pxa_ep_enable,
 	.disable	= pxa_ep_disable,
 
@@ -1607,9 +1600,6 @@ static int pxa_udc_pullup(struct usb_gadget *_gadget, int is_active)
 		udc_disable(udc);
 	return 0;
 }
-
-static void udc_enable(struct pxa_udc *udc);
-static void udc_disable(struct pxa_udc *udc);
 
 /**
  * pxa_udc_vbus_session - Called by external transceiver to enable/disable udc
@@ -2534,9 +2524,10 @@ static int pxa_udc_remove(struct platform_device *_dev)
 	usb_del_gadget_udc(&udc->gadget);
 	pxa_cleanup_debugfs(udc);
 
-	if (!IS_ERR_OR_NULL(udc->transceiver))
+	if (!IS_ERR_OR_NULL(udc->transceiver)) {
 		usb_unregister_notifier(udc->transceiver, &pxa27x_udc_phy);
-	usb_put_phy(udc->transceiver);
+		usb_put_phy(udc->transceiver);
+	}
 
 	udc->transceiver = NULL;
 	the_controller = NULL;

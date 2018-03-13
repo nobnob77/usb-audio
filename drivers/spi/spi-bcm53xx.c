@@ -1,3 +1,11 @@
+/*
+ * Copyright (C) 2014-2016 Rafał Miłecki <rafal@milecki.pl>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #define pr_fmt(fmt)		KBUILD_MODNAME ": " fmt
 
 #include <linux/kernel.h>
@@ -19,8 +27,6 @@ struct bcm53xxspi {
 	struct bcma_device *core;
 	struct spi_master *master;
 	void __iomem *mmio_base;
-
-	size_t read_offset;
 	bool bspi;				/* Boot SPI mode with memory mapping */
 };
 
@@ -164,8 +170,6 @@ static void bcm53xxspi_buf_write(struct bcm53xxspi *b53spi, u8 *w_buf,
 
 	if (!cont)
 		bcm53xxspi_write(b53spi, B53SPI_MSPI_WRITE_LOCK, 0);
-
-	b53spi->read_offset = len;
 }
 
 static void bcm53xxspi_buf_read(struct bcm53xxspi *b53spi, u8 *r_buf,
@@ -174,10 +178,10 @@ static void bcm53xxspi_buf_read(struct bcm53xxspi *b53spi, u8 *r_buf,
 	u32 tmp;
 	int i;
 
-	for (i = 0; i < b53spi->read_offset + len; i++) {
+	for (i = 0; i < len; i++) {
 		tmp = B53SPI_CDRAM_CONT | B53SPI_CDRAM_PCS_DISABLE_ALL |
 		      B53SPI_CDRAM_PCS_DSCK;
-		if (!cont && i == b53spi->read_offset + len - 1)
+		if (!cont && i == len - 1)
 			tmp &= ~B53SPI_CDRAM_CONT;
 		tmp &= ~0x1;
 		/* Command Register File */
@@ -186,8 +190,7 @@ static void bcm53xxspi_buf_read(struct bcm53xxspi *b53spi, u8 *r_buf,
 
 	/* Set queue pointers */
 	bcm53xxspi_write(b53spi, B53SPI_MSPI_NEWQP, 0);
-	bcm53xxspi_write(b53spi, B53SPI_MSPI_ENDQP,
-			 b53spi->read_offset + len - 1);
+	bcm53xxspi_write(b53spi, B53SPI_MSPI_ENDQP, len - 1);
 
 	if (cont)
 		bcm53xxspi_write(b53spi, B53SPI_MSPI_WRITE_LOCK, 1);
@@ -206,13 +209,11 @@ static void bcm53xxspi_buf_read(struct bcm53xxspi *b53spi, u8 *r_buf,
 		bcm53xxspi_write(b53spi, B53SPI_MSPI_WRITE_LOCK, 0);
 
 	for (i = 0; i < len; ++i) {
-		int offset = b53spi->read_offset + i;
+		u16 reg = B53SPI_MSPI_RXRAM + 4 * (1 + i * 2);
 
 		/* Data stored in the transmit register file LSB */
-		r_buf[i] = (u8)bcm53xxspi_read(b53spi, B53SPI_MSPI_RXRAM + 4 * (1 + offset * 2));
+		r_buf[i] = (u8)bcm53xxspi_read(b53spi, reg);
 	}
-
-	b53spi->read_offset = 0;
 }
 
 static int bcm53xxspi_transfer_one(struct spi_master *master,
@@ -230,7 +231,8 @@ static int bcm53xxspi_transfer_one(struct spi_master *master,
 		left = t->len;
 		while (left) {
 			size_t to_write = min_t(size_t, 16, left);
-			bool cont = left - to_write > 0;
+			bool cont = !spi_transfer_is_last(master, t) ||
+				    left - to_write > 0;
 
 			bcm53xxspi_buf_write(b53spi, buf, to_write, cont);
 			left -= to_write;
@@ -242,9 +244,9 @@ static int bcm53xxspi_transfer_one(struct spi_master *master,
 		buf = (u8 *)t->rx_buf;
 		left = t->len;
 		while (left) {
-			size_t to_read = min_t(size_t, 16 - b53spi->read_offset,
-					       left);
-			bool cont = left - to_read > 0;
+			size_t to_read = min_t(size_t, 16, left);
+			bool cont = !spi_transfer_is_last(master, t) ||
+				    left - to_read > 0;
 
 			bcm53xxspi_buf_read(b53spi, buf, to_read, cont);
 			left -= to_read;
@@ -274,10 +276,6 @@ static int bcm53xxspi_flash_read(struct spi_device *spi,
 /**************************************************
  * BCMA
  **************************************************/
-
-static struct spi_board_info bcm53xx_info = {
-	.modalias	= "bcm53xxspiflash",
-};
 
 static const struct bcma_device_id bcm53xxspi_bcma_tbl[] = {
 	BCMA_CORE(BCMA_MANUF_BCM, BCMA_CORE_NS_QSPI, BCMA_ANY_REV, BCMA_ANY_CLASS),
@@ -311,6 +309,7 @@ static int bcm53xxspi_bcma_probe(struct bcma_device *core)
 	b53spi->bspi = true;
 	bcm53xxspi_disable_bspi(b53spi);
 
+	master->dev.of_node = dev->of_node;
 	master->transfer_one = bcm53xxspi_transfer_one;
 	if (b53spi->mmio_base)
 		master->spi_flash_read = bcm53xxspi_flash_read;
@@ -323,9 +322,6 @@ static int bcm53xxspi_bcma_probe(struct bcma_device *core)
 		bcma_set_drvdata(core, NULL);
 		return err;
 	}
-
-	/* Broadcom SoCs (at least with the CC rev 42) use SPI for flash only */
-	spi_new_device(master, &bcm53xx_info);
 
 	return 0;
 }
@@ -361,4 +357,4 @@ module_exit(bcm53xxspi_module_exit);
 
 MODULE_DESCRIPTION("Broadcom BCM53xx SPI Controller driver");
 MODULE_AUTHOR("Rafał Miłecki <zajec5@gmail.com>");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");

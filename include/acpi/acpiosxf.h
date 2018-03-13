@@ -7,7 +7,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2016, Intel Corp.
+ * Copyright (C) 2000 - 2018, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -287,6 +287,8 @@ acpi_status acpi_os_write_port(acpi_io_address address, u32 value, u32 width);
 /*
  * Platform and hardware-independent physical memory interfaces
  */
+int acpi_os_read_iomem(void __iomem *virt_addr, u64 *value, u32 width);
+
 #ifndef ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_read_memory
 acpi_status
 acpi_os_read_memory(acpi_physical_address address, u64 *value, u32 width);
@@ -333,6 +335,10 @@ u64 acpi_os_get_timer(void);
 acpi_status acpi_os_signal(u32 function, void *info);
 #endif
 
+#ifndef ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_enter_sleep
+acpi_status acpi_os_enter_sleep(u8 sleep_state, u32 rega_value, u32 regb_value);
+#endif
+
 /*
  * Debug print routines
  */
@@ -355,12 +361,12 @@ void acpi_os_redirect_output(void *destination);
 acpi_status acpi_os_get_line(char *buffer, u32 buffer_length, u32 *bytes_read);
 #endif
 
-#ifndef ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_initialize_command_signals
-acpi_status acpi_os_initialize_command_signals(void);
+#ifndef ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_initialize_debugger
+acpi_status acpi_os_initialize_debugger(void);
 #endif
 
-#ifndef ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_terminate_command_signals
-void acpi_os_terminate_command_signals(void);
+#ifndef ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_terminate_debugger
+void acpi_os_terminate_debugger(void);
 #endif
 
 #ifndef ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_wait_command_ready

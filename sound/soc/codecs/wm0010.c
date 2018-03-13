@@ -21,7 +21,6 @@
 #include <linux/firmware.h>
 #include <linux/delay.h>
 #include <linux/fs.h>
-#include <linux/miscdevice.h>
 #include <linux/gpio.h>
 #include <linux/regulator/consumer.h>
 #include <linux/mutex.h>
@@ -656,11 +655,8 @@ static int wm0010_boot(struct snd_soc_codec *codec)
 		ret = -ENOMEM;
 		len = pll_rec.length + 8;
 		out = kzalloc(len, GFP_KERNEL | GFP_DMA);
-		if (!out) {
-			dev_err(codec->dev,
-				"Failed to allocate RX buffer\n");
+		if (!out)
 			goto abort;
-		}
 
 		img_swap = kzalloc(len, GFP_KERNEL | GFP_DMA);
 		if (!img_swap)

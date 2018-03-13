@@ -231,7 +231,7 @@ amdgpu_connector_update_scratch_regs(struct drm_connector *connector,
 		if (connector->encoder_ids[i] == 0)
 			break;
 
-		encoder = drm_encoder_find(connector->dev,
+		encoder = drm_encoder_find(connector->dev, NULL,
 					connector->encoder_ids[i]);
 		if (!encoder)
 			continue;
@@ -256,7 +256,7 @@ amdgpu_connector_find_encoder(struct drm_connector *connector,
 	for (i = 0; i < DRM_CONNECTOR_MAX_ENCODER; i++) {
 		if (connector->encoder_ids[i] == 0)
 			break;
-		encoder = drm_encoder_find(connector->dev,
+		encoder = drm_encoder_find(connector->dev, NULL,
 					connector->encoder_ids[i]);
 		if (!encoder)
 			continue;
@@ -346,10 +346,8 @@ static void amdgpu_connector_free_edid(struct drm_connector *connector)
 {
 	struct amdgpu_connector *amdgpu_connector = to_amdgpu_connector(connector);
 
-	if (amdgpu_connector->edid) {
-		kfree(amdgpu_connector->edid);
-		amdgpu_connector->edid = NULL;
-	}
+	kfree(amdgpu_connector->edid);
+	amdgpu_connector->edid = NULL;
 }
 
 static int amdgpu_connector_ddc_get_modes(struct drm_connector *connector)
@@ -360,7 +358,6 @@ static int amdgpu_connector_ddc_get_modes(struct drm_connector *connector)
 	if (amdgpu_connector->edid) {
 		drm_mode_connector_update_edid_property(connector, amdgpu_connector->edid);
 		ret = drm_add_edid_modes(connector, amdgpu_connector->edid);
-		drm_edid_to_eld(connector, amdgpu_connector->edid);
 		return ret;
 	}
 	drm_mode_connector_update_edid_property(connector, NULL);
@@ -374,7 +371,7 @@ amdgpu_connector_best_single_encoder(struct drm_connector *connector)
 
 	/* pick the encoder ids */
 	if (enc_id)
-		return drm_encoder_find(connector->dev, enc_id);
+		return drm_encoder_find(connector->dev, NULL, enc_id);
 	return NULL;
 }
 
@@ -739,9 +736,11 @@ amdgpu_connector_lvds_detect(struct drm_connector *connector, bool force)
 	enum drm_connector_status ret = connector_status_disconnected;
 	int r;
 
-	r = pm_runtime_get_sync(connector->dev->dev);
-	if (r < 0)
-		return connector_status_disconnected;
+	if (!drm_kms_helper_is_poll_worker()) {
+		r = pm_runtime_get_sync(connector->dev->dev);
+		if (r < 0)
+			return connector_status_disconnected;
+	}
 
 	if (encoder) {
 		struct amdgpu_encoder *amdgpu_encoder = to_amdgpu_encoder(encoder);
@@ -760,8 +759,12 @@ amdgpu_connector_lvds_detect(struct drm_connector *connector, bool force)
 	/* check acpi lid status ??? */
 
 	amdgpu_connector_update_scratch_regs(connector, ret);
-	pm_runtime_mark_last_busy(connector->dev->dev);
-	pm_runtime_put_autosuspend(connector->dev->dev);
+
+	if (!drm_kms_helper_is_poll_worker()) {
+		pm_runtime_mark_last_busy(connector->dev->dev);
+		pm_runtime_put_autosuspend(connector->dev->dev);
+	}
+
 	return ret;
 }
 
@@ -769,7 +772,7 @@ static void amdgpu_connector_unregister(struct drm_connector *connector)
 {
 	struct amdgpu_connector *amdgpu_connector = to_amdgpu_connector(connector);
 
-	if (amdgpu_connector->ddc_bus->has_aux) {
+	if (amdgpu_connector->ddc_bus && amdgpu_connector->ddc_bus->has_aux) {
 		drm_dp_aux_unregister(&amdgpu_connector->ddc_bus->aux);
 		amdgpu_connector->ddc_bus->has_aux = false;
 	}
@@ -871,9 +874,11 @@ amdgpu_connector_vga_detect(struct drm_connector *connector, bool force)
 	enum drm_connector_status ret = connector_status_disconnected;
 	int r;
 
-	r = pm_runtime_get_sync(connector->dev->dev);
-	if (r < 0)
-		return connector_status_disconnected;
+	if (!drm_kms_helper_is_poll_worker()) {
+		r = pm_runtime_get_sync(connector->dev->dev);
+		if (r < 0)
+			return connector_status_disconnected;
+	}
 
 	encoder = amdgpu_connector_best_single_encoder(connector);
 	if (!encoder)
@@ -927,8 +932,10 @@ amdgpu_connector_vga_detect(struct drm_connector *connector, bool force)
 	amdgpu_connector_update_scratch_regs(connector, ret);
 
 out:
-	pm_runtime_mark_last_busy(connector->dev->dev);
-	pm_runtime_put_autosuspend(connector->dev->dev);
+	if (!drm_kms_helper_is_poll_worker()) {
+		pm_runtime_mark_last_busy(connector->dev->dev);
+		pm_runtime_put_autosuspend(connector->dev->dev);
+	}
 
 	return ret;
 }
@@ -991,9 +998,11 @@ amdgpu_connector_dvi_detect(struct drm_connector *connector, bool force)
 	enum drm_connector_status ret = connector_status_disconnected;
 	bool dret = false, broken_edid = false;
 
-	r = pm_runtime_get_sync(connector->dev->dev);
-	if (r < 0)
-		return connector_status_disconnected;
+	if (!drm_kms_helper_is_poll_worker()) {
+		r = pm_runtime_get_sync(connector->dev->dev);
+		if (r < 0)
+			return connector_status_disconnected;
+	}
 
 	if (!force && amdgpu_connector_check_hpd_status_unchanged(connector)) {
 		ret = connector->status;
@@ -1079,7 +1088,7 @@ amdgpu_connector_dvi_detect(struct drm_connector *connector, bool force)
 			if (connector->encoder_ids[i] == 0)
 				break;
 
-			encoder = drm_encoder_find(connector->dev, connector->encoder_ids[i]);
+			encoder = drm_encoder_find(connector->dev, NULL, connector->encoder_ids[i]);
 			if (!encoder)
 				continue;
 
@@ -1118,8 +1127,10 @@ out:
 	amdgpu_connector_update_scratch_regs(connector, ret);
 
 exit:
-	pm_runtime_mark_last_busy(connector->dev->dev);
-	pm_runtime_put_autosuspend(connector->dev->dev);
+	if (!drm_kms_helper_is_poll_worker()) {
+		pm_runtime_mark_last_busy(connector->dev->dev);
+		pm_runtime_put_autosuspend(connector->dev->dev);
+	}
 
 	return ret;
 }
@@ -1136,7 +1147,7 @@ amdgpu_connector_dvi_encoder(struct drm_connector *connector)
 		if (connector->encoder_ids[i] == 0)
 			break;
 
-		encoder = drm_encoder_find(connector->dev, connector->encoder_ids[i]);
+		encoder = drm_encoder_find(connector->dev, NULL, connector->encoder_ids[i]);
 		if (!encoder)
 			continue;
 
@@ -1155,7 +1166,7 @@ amdgpu_connector_dvi_encoder(struct drm_connector *connector)
 	/* then check use digitial */
 	/* pick the first one */
 	if (enc_id)
-		return drm_encoder_find(connector->dev, enc_id);
+		return drm_encoder_find(connector->dev, NULL, enc_id);
 	return NULL;
 }
 
@@ -1296,7 +1307,7 @@ u16 amdgpu_connector_encoder_get_dp_bridge_encoder_id(struct drm_connector *conn
 		if (connector->encoder_ids[i] == 0)
 			break;
 
-		encoder = drm_encoder_find(connector->dev,
+		encoder = drm_encoder_find(connector->dev, NULL,
 					connector->encoder_ids[i]);
 		if (!encoder)
 			continue;
@@ -1325,7 +1336,7 @@ static bool amdgpu_connector_encoder_is_hbr2(struct drm_connector *connector)
 	for (i = 0; i < DRM_CONNECTOR_MAX_ENCODER; i++) {
 		if (connector->encoder_ids[i] == 0)
 			break;
-		encoder = drm_encoder_find(connector->dev,
+		encoder = drm_encoder_find(connector->dev, NULL,
 					connector->encoder_ids[i]);
 		if (!encoder)
 			continue;
@@ -1362,9 +1373,11 @@ amdgpu_connector_dp_detect(struct drm_connector *connector, bool force)
 	struct drm_encoder *encoder = amdgpu_connector_best_single_encoder(connector);
 	int r;
 
-	r = pm_runtime_get_sync(connector->dev->dev);
-	if (r < 0)
-		return connector_status_disconnected;
+	if (!drm_kms_helper_is_poll_worker()) {
+		r = pm_runtime_get_sync(connector->dev->dev);
+		if (r < 0)
+			return connector_status_disconnected;
+	}
 
 	if (!force && amdgpu_connector_check_hpd_status_unchanged(connector)) {
 		ret = connector->status;
@@ -1432,8 +1445,10 @@ amdgpu_connector_dp_detect(struct drm_connector *connector, bool force)
 
 	amdgpu_connector_update_scratch_regs(connector, ret);
 out:
-	pm_runtime_mark_last_busy(connector->dev->dev);
-	pm_runtime_put_autosuspend(connector->dev->dev);
+	if (!drm_kms_helper_is_poll_worker()) {
+		pm_runtime_mark_last_busy(connector->dev->dev);
+		pm_runtime_put_autosuspend(connector->dev->dev);
+	}
 
 	return ret;
 }
@@ -1515,88 +1530,6 @@ static const struct drm_connector_funcs amdgpu_connector_edp_funcs = {
 	.early_unregister = amdgpu_connector_unregister,
 	.destroy = amdgpu_connector_destroy,
 	.force = amdgpu_connector_dvi_force,
-};
-
-static struct drm_encoder *
-amdgpu_connector_virtual_encoder(struct drm_connector *connector)
-{
-	int enc_id = connector->encoder_ids[0];
-	struct drm_encoder *encoder;
-	int i;
-	for (i = 0; i < DRM_CONNECTOR_MAX_ENCODER; i++) {
-		if (connector->encoder_ids[i] == 0)
-			break;
-
-		encoder = drm_encoder_find(connector->dev, connector->encoder_ids[i]);
-		if (!encoder)
-			continue;
-
-		if (encoder->encoder_type == DRM_MODE_ENCODER_VIRTUAL)
-			return encoder;
-	}
-
-	/* pick the first one */
-	if (enc_id)
-		return drm_encoder_find(connector->dev, enc_id);
-	return NULL;
-}
-
-static int amdgpu_connector_virtual_get_modes(struct drm_connector *connector)
-{
-	struct drm_encoder *encoder = amdgpu_connector_best_single_encoder(connector);
-
-	if (encoder) {
-		amdgpu_connector_add_common_modes(encoder, connector);
-	}
-
-	return 0;
-}
-
-static int amdgpu_connector_virtual_mode_valid(struct drm_connector *connector,
-					   struct drm_display_mode *mode)
-{
-	return MODE_OK;
-}
-
-static int
-amdgpu_connector_virtual_dpms(struct drm_connector *connector, int mode)
-{
-	return 0;
-}
-
-static enum drm_connector_status
-
-amdgpu_connector_virtual_detect(struct drm_connector *connector, bool force)
-{
-	return connector_status_connected;
-}
-
-static int
-amdgpu_connector_virtual_set_property(struct drm_connector *connector,
-				  struct drm_property *property,
-				  uint64_t val)
-{
-	return 0;
-}
-
-static void amdgpu_connector_virtual_force(struct drm_connector *connector)
-{
-	return;
-}
-
-static const struct drm_connector_helper_funcs amdgpu_connector_virtual_helper_funcs = {
-	.get_modes = amdgpu_connector_virtual_get_modes,
-	.mode_valid = amdgpu_connector_virtual_mode_valid,
-	.best_encoder = amdgpu_connector_virtual_encoder,
-};
-
-static const struct drm_connector_funcs amdgpu_connector_virtual_funcs = {
-	.dpms = amdgpu_connector_virtual_dpms,
-	.detect = amdgpu_connector_virtual_detect,
-	.fill_modes = drm_helper_probe_single_connector_modes,
-	.set_property = amdgpu_connector_virtual_set_property,
-	.destroy = amdgpu_connector_destroy,
-	.force = amdgpu_connector_virtual_force,
 };
 
 void
@@ -1979,17 +1912,6 @@ amdgpu_connector_add(struct amdgpu_device *adev,
 			drm_object_attach_property(&amdgpu_connector->base.base,
 						      dev->mode_config.scaling_mode_property,
 						      DRM_MODE_SCALE_FULLSCREEN);
-			subpixel_order = SubPixelHorizontalRGB;
-			connector->interlace_allowed = false;
-			connector->doublescan_allowed = false;
-			break;
-		case DRM_MODE_CONNECTOR_VIRTUAL:
-			amdgpu_dig_connector = kzalloc(sizeof(struct amdgpu_connector_atom_dig), GFP_KERNEL);
-			if (!amdgpu_dig_connector)
-				goto failed;
-			amdgpu_connector->con_priv = amdgpu_dig_connector;
-			drm_connector_init(dev, &amdgpu_connector->base, &amdgpu_connector_virtual_funcs, connector_type);
-			drm_connector_helper_add(&amdgpu_connector->base, &amdgpu_connector_virtual_helper_funcs);
 			subpixel_order = SubPixelHorizontalRGB;
 			connector->interlace_allowed = false;
 			connector->doublescan_allowed = false;

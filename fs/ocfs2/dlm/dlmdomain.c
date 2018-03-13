@@ -33,6 +33,7 @@
 #include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/debugfs.h>
+#include <linux/sched/signal.h>
 
 #include "cluster/heartbeat.h"
 #include "cluster/nodemanager.h"
@@ -393,7 +394,6 @@ int dlm_domain_fully_joined(struct dlm_ctxt *dlm)
 static void dlm_destroy_dlm_worker(struct dlm_ctxt *dlm)
 {
 	if (dlm->dlm_worker) {
-		flush_workqueue(dlm->dlm_worker);
 		destroy_workqueue(dlm->dlm_worker);
 		dlm->dlm_worker = NULL;
 	}
@@ -2072,7 +2072,7 @@ static struct dlm_ctxt *dlm_alloc_ctxt(const char *domain,
 	INIT_LIST_HEAD(&dlm->dlm_eviction_callbacks);
 
 	mlog(0, "context init: refcount %u\n",
-		  atomic_read(&dlm->dlm_refs.refcount));
+		  kref_read(&dlm->dlm_refs));
 
 leave:
 	if (ret < 0 && dlm) {
